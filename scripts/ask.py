@@ -155,17 +155,83 @@ def walk(graph: dict, entities: dict, start: str, steps: list[dict]) -> list[str
     return sorted(frontier)
 
 
-def probe(item: dict, entities: dict, graph: dict, anchors: list[str]) -> dict | None:
+def dig(obj, path: list[str]) -> list:
+    """按点分路径取值，遇列表就展开。a.b[].c 写成 ['a','b','c']。"""
+    cur = [obj]
+    for seg in path:
+        nxt = []
+        for node in cur:
+            if isinstance(node, list):
+                nxt.extend(x.get(seg) for x in node if isinstance(x, dict))
+            elif isinstance(node, dict):
+                nxt.append(node.get(seg))
+        cur = [x for x in nxt if x not in (None, "", [], {})]
+    out = []
+    for x in cur:
+        out.extend(x) if isinstance(x, list) else out.append(x)
+    return [x for x in out if x not in (None, "", [], {})]
+
+
+def probe_field(spec: dict, entities: dict, kb, anchors: list[str]) -> dict:
+    """字段型 probe：有些问句的答案不在边上，而在字段里。
+
+    CQ02 的判别依据是 possible_causes[].discriminator，CQ08 的流程顺序是
+    Route.steps，CQ19 的传导路径是 economic_hooks.affects。这些都不是图的边，
+    走 walk() 永远返回空——但问题确实可答。硬把它们塞成关系反而会造出假边。
+    """
+    scope = spec.get("scope", "entity")            # entity | kb
+    path = [p for p in spec["field"].replace("[]", "").split(".") if p]
+    want = spec.get("contains")
+
+    if scope == "kb":
+        cases = kb if isinstance(kb, list) else (kb.get("cases") or [])
+        pool = {c.get("id") or f"case#{i}": c for i, c in enumerate(cases)}
+    else:
+        pool = {i: e for i, e in entities.items()
+                if not spec.get("from_type") or e.get("type") == spec["from_type"]}
+    picked = {a: pool[a] for a in anchors if a in pool}
+    scanned_all = not picked
+    if scanned_all:
+        picked = pool
+
+    hits = {}
+    for key, obj in picked.items():
+        vals = dig(obj, path)
+        if want:
+            vals = [v for v in vals if want in (v if isinstance(v, (list, str)) else str(v))]
+        hits[key] = [str(v)[:60] for v in vals]
+    ok = {k: v for k, v in hits.items() if v}
+    return {
+        "from_type": spec.get("from_type") or f"{scope}:{spec['field']}",
+        "scanned_all": scanned_all,
+        "total": len(picked),
+        "non_empty": len(ok),
+        "samples": {k: v[:5] for k, v in list(ok.items())[:3]},
+        "empty_samples": [k for k, v in hits.items() if not v][:3],
+    }
+
+
+def probe(item: dict, entities: dict, graph: dict, anchors: list[str],
+          kb=None) -> dict | None:
     """真走一遍路径。有锚点就从锚点走，否则遍历该类型全部实体统计覆盖率。"""
     spec = item.get("probe")
     if not spec:
         return None
-    # probe 可以是单个方向或多个方向。双向问句（"某工序属于哪段" /
-    # "某段有哪些工序"）只写一个方向时，锚点类型对不上 from_type 就会退化成
-    # 全表扫描——起点白定位了。写成列表后按锚点类型挑，挑不到用第一条。
+    # 先选 spec 再分派，不能反过来。CQ17 的 probe 是边型 + 字段型混排：
+    # 锚点是 State 时走 blocks 边，否则退到 kb 实例的 possible_causes。
+    # 若按 spec[0] 的形态先分派，字段型那条永远走不到。
     specs = spec if isinstance(spec, list) else [spec]
     atypes = {entities.get(a, {}).get("type") for a in anchors}
-    spec = next((s for s in specs if s["from_type"] in atypes), specs[0])
+    picked = next((s for s in specs if s.get("from_type") in atypes), None)
+    if picked is None:
+        # 无锚点匹配：优先挑字段型，它不依赖锚点也能给出有意义的覆盖率
+        picked = next((s for s in specs if s.get("field")), specs[0])
+    if picked.get("field"):
+        return probe_field(picked, entities, kb or {}, anchors)
+    # 上面按锚点类型挑 spec 的逻辑同时服务双向问句（"某工序属于哪段" /
+    # "某段有哪些工序"）：只写一个方向时锚点对不上 from_type 就会退化成全表扫描，
+    # 起点白定位了。
+    spec = picked
     steps, start_type = spec["steps"], spec["from_type"]
     starts = [a for a in anchors if entities.get(a, {}).get("type") == start_type]
     scanned_all = not starts
@@ -225,7 +291,9 @@ def main() -> int:
         top = None
     pr = None
     if top and top["bucket"] == "in_scope" and do_probe and graph:
-        pr = probe(top["item"], entities, graph, top["anchors"])
+        # 字段型 probe 要读 kb 实例（判别依据、传导路径都在实例里），
+        # 只有真要探测时才加载，免得每次问句都多读一遍全部 case。
+        pr = probe(top["item"], entities, graph, top["anchors"], C.load_kb())
 
     if as_json:
         print(json.dumps({

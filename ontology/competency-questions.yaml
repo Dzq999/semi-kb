@@ -37,6 +37,8 @@ in_scope:
       entity_types: [Anomaly]
     answered_via: "kb 实例的 possible_causes[].discriminator——判别依据是知识库最有价值的字段"
     match_terms: ["区分", "区别", "怎么分", "如何分辨", "判别", "分辨", "不一样", "差别"]
+    # 判别依据不是图上的边,而是实例字段。硬塞成关系会造出假边。
+    probe: {scope: kb, field: "possible_causes[].discriminator"}
 
   - id: CQ03
     q: "这个异常会引发哪些下游异常（级联）？"
@@ -92,6 +94,7 @@ in_scope:
       relations: [precedes]
     answered_via: "Route.steps（有序），与 precedes 边一致（R010 保证）"
     match_terms: ["完整流程", "流程步骤", "有哪些步骤", "走哪些工序", "流程是", "工艺流程", "整条线"]
+    probe: {from_type: Route, field: steps}
 
   - id: CQ09
     q: "某道工序属于哪个制程段，同段还有哪些工序？"
@@ -113,6 +116,7 @@ in_scope:
     answered_via: "对比两个 Route 的 steps 集合"
     match_terms: ["差异", "对比", "有什么不同", "比较", "两条流程", "区别在哪",
                   "差在哪", "流程差", "有什么区别", "差别在", "哪里不同"]
+    probe: {from_type: Route, field: steps}   # 对比靠两个 Route 的 steps,探测只保证字段非空
 
   # --- 参数与量测：控制回路 ---
   - id: CQ11
@@ -164,6 +168,7 @@ in_scope:
       entity_types: [Equipment]
     answered_via: "Equipment.tags 含 bottleneck，性质见 description 与 economic_hooks.note"
     match_terms: ["瓶颈", "瓶颈机台", "产能瓶颈", "卡产能", "最慢", "限制产能"]
+    probe: {from_type: Equipment, field: tags, contains: bottleneck}
 
   - id: CQ16
     q: "某台量测/测试机台的能力下滑，会影响哪些异常的检出？"
@@ -187,6 +192,8 @@ in_scope:
     answered_via: "core.anomaly.wip_bubble 的 kb 实例；State -blocks-> Process 给状态性阻塞"
     match_terms: ["wip", "堆积", "在制", "排队", "积压", "堵住", "堆在",
                   "堵", "卡在", "站点堵", "容易堵", "排不动"]
+    probe: [{from_type: State, steps: [{via: blocks, dir: out}]},
+            {scope: kb, field: "possible_causes[].cause_ref"}]
 
   - id: CQ18
     q: "批次处于扣留/重工/报废状态，意味着什么，会阻塞什么？"
@@ -206,6 +213,7 @@ in_scope:
     caveat: "只答传导到哪，答不出传导多少——见 out_of_scope OOS02"
     match_terms: ["经营变量", "传导", "影响什么", "影响哪些", "经营影响", "传导到",
                   "对成本", "成本影响", "影响成本", "对良率的影响", "对交期", "影响交期", "对产出"]
+    probe: {field: "economic_hooks[].affects"}
 
   # --- 抽象与类比 ---
   - id: CQ20
