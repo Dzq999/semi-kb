@@ -169,34 +169,3 @@ entities:
     economic_hooks:
       affects: [yield, capacity_commit, cost_per_unit]
       note: CP 良率是前后段交接的计价基准，也是后段产能规划输入
-  - id: fab.process.euv_exposure
-    type: Process
-    name_zh: EUV 曝光
-    name_en: EUV Exposure
-    domain: fab
-    stage: fab.stage.photo
-    materials:
-    - core.material.wafer
-    - fab.material.reticle
-    description: '13.5 nm 极紫外光曝光，用于先进制程关键层。全反射光学系统、真空环境、 光罩需 Pellicle 保护。光源功率与光子散粒噪声是产能与缺陷的主要约束。
-
-      '
-    parameters:
-    - fab.param.exposure_dose
-    - fab.param.exposure_focus
-    metrics:
-    - fab.metric.cd_uniformity
-    - fab.metric.overlay_error
-    economic_hooks:
-      affects:
-      - yield
-      - throughput
-      - capacity_commit
-      - cost_per_unit
-      note: 单机资本支出极高，稼动率直接决定先进制程单位成本
-    provenance:
-      source_type: web
-      ref: https://www.asml.com/en/technology/lithography-principles/euv-lithography
-      confidence: medium
-      created_at: '2026-08-26'
-      reviewed_by: null

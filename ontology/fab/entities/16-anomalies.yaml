@@ -108,28 +108,3 @@ entities:
     economic_hooks:
       affects: [throughput, capacity_commit, cycle_time, equipment_oee]
       note: 瓶颈停机时数近似线性折算为确定性产出损失
-  - id: fab.anomaly.stochastic_defect
-    type: Anomaly
-    name_zh: 随机性缺陷
-    name_en: Stochastic Defect
-    domain: fab
-    severity: high
-    description: 'EUV 制程中因光子散粒噪声与光阻分子随机性导致的图形缺陷 （断线、桥连、孔洞缺失）。特征是无法通过参数中心值调整消除， 只能以提高剂量换取降低随机性——即产能与良率的直接对冲，
-      这与 DUV 时代"调参消除偏移"的处置逻辑根本不同。
-
-      '
-    metrics:
-    - fab.metric.cd_uniformity
-    - fab.metric.defect_density
-    economic_hooks:
-      affects:
-      - yield
-      - throughput
-      - cost_per_unit
-      note: 剂量与产能反向权衡，是先进制程独有的良率-产出对冲关系
-    provenance:
-      source_type: model_prior
-      ref: null
-      confidence: medium
-      created_at: '2026-08-26'
-      reviewed_by: null
