@@ -120,3 +120,43 @@ cases:
         残留若被后续金属层覆盖固化则完全不可挽回，且在 WAT 才暴露为短路，
         届时前段投入已全部沉没。此处的拦截价值远高于处置成本。
     tags: [蚀刻, 残留, 排查]
+  - id: kb.fab.stochastic_defect_triage
+    domain: fab
+    title: EUV 随机性缺陷排查与处置
+    anomaly_ref: fab.anomaly.stochastic_defect
+    detected_at_ref: fab.process.defect_scan
+    severity: high
+    symptoms:
+    - 缺陷率整体偏高但无空间规律，参数调整无明显改善
+    - 缺陷类型为断线、桥连、孔洞缺失混合出现
+    - 同配方不同批次间缺陷率波动大
+    possible_causes:
+    - cause_ref: fab.param.exposure_dose
+      likelihood: high
+      discriminator: '提高剂量后缺陷率下降但产出同步下降。若存在这种反向关系， 即为随机性主导，与确定性偏移的区别在于后者调参可同时改善两者。
+
+        '
+    detection:
+    - metric_ref: fab.metric.defect_density
+      signal: 缺陷分布随机无签名，这本身就是与设备/环境型异常的判别依据
+    actions:
+    - action_ref: fab.action.recipe_adjust
+      order: 1
+      condition: '提高剂量以抑制随机性，但须同步评估产出损失。 这是权衡决策而非修复动作，需经营层面确认取舍点。
+
+        '
+    - action_ref: fab.action.expand_sampling
+      order: 2
+      condition: 随机性缺陷需更大样本量才能可靠估计缺陷率
+    impact:
+      blocked_processes:
+      - fab.process.dry_etch
+      economic: '无法消除，只能在良率与产能之间选择工作点。 这类异常的处置本质是经营决策，属第三层经营模型的典型输入。
+
+        '
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-26'
+      reviewed_by: null
