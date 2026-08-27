@@ -73,10 +73,16 @@ def precheck(guards: dict, skip_agent: bool) -> str | None:
 
     if guards.get("require_git_clean", True):
         r = run([*GIT, "status", "--porcelain"])
-        if r.stdout.strip():
-            dirty = [l for l in r.stdout.strip().splitlines()][:5]
-            return ("工作区不干净，没有干净的回滚点：\n    " + "\n    ".join(dirty) +
-                    "\n  先提交或撤销这些改动。自动化不该在别人没存盘的工作上叠改动。")
+        # changesets/ 与 logs/ 不算脏：agent 先产出提案再调本脚本是正常顺序
+        # （--skip-agent 那条路径就是这样），把它们算进去会让流程一开跑就卡住。
+        # ontology/ kb/ 之外的改动不影响回滚的正确性——reset --hard 一样能收。
+        dirty = [l for l in r.stdout.strip().splitlines()
+                 if l.strip() and not any(
+                     p in l for p in ("changesets/", "logs/", "build/"))]
+        if dirty:
+            return ("工作区有未提交的改动，没有干净的回滚点：\n    " +
+                    "\n    ".join(dirty[:5]) +
+                    "\n  先提交或撤销。自动化不该在别人没存盘的工作上叠改动。")
 
     for s in ("validate.py", "build_index.py", "regress.py", "apply_changeset.py", "ask.py"):
         if not (C.ROOT / "scripts" / s).is_file():
@@ -186,10 +192,22 @@ def snapshot() -> str:
 
 
 def rollback(point: str, why: str) -> None:
+    """把已跟踪文件恢复到 point。只在真的合并过内容之后调。
+
+    刻意不碰 changesets/：提案是数据，可能是人手工放进去的，
+    合并失败时更需要留着看为什么失败。`git clean -fd -- changesets` 会把它删掉。
+    也刻意不 clean 未跟踪文件：新建的实体文件如果没进索引，留着比删掉安全，
+    下次跑前置检查会因为工作区不干净而拦住，那时人能看到它。
+    """
     log(f"!! {why}")
-    log(f"回滚到 {point[:8]}")
+    log(f"回滚已跟踪文件到 {point[:8]}（changesets/ 与未跟踪文件保留）")
     run([*GIT, "reset", "--hard", point])
-    run([*GIT, "clean", "-fd", "--", "ontology", "kb", "build", "changesets"])
+    r = run([*GIT, "status", "--porcelain"])
+    left = [l for l in r.stdout.strip().splitlines() if l.startswith("??")]
+    if left:
+        log("回滚后仍有未跟踪文件，需人工处置：")
+        for l in left[:8]:
+            log(f"    {l}")
 
 
 def commit(before: dict, after: dict, note: str) -> None:
@@ -244,12 +262,18 @@ def main() -> int:
     pending = sorted((C.ROOT / "changesets" / "pending").glob("*.yaml"))
     log(f"pending 提案 {len(pending)} 个：{[p.name for p in pending]}")
     if not pending:
-        log("无事可做（agent 没产出提案）。不算失败。")
-        rollback(point, "无提案，清掉 agent 可能留下的临时改动")
+        # 不回滚。没合并过任何内容，没有要撤的东西；而 reset --hard 在这里
+        # 只会破坏——比如删掉 agent 中途写坏但还有诊断价值的文件。
+        log("无事可做（没有待落库的提案）。不算失败，也不动任何文件。")
+        r = run([*GIT, "status", "--porcelain"])
+        if r.stdout.strip():
+            log("注意：工作区有改动但没有提案，agent 可能中途失败了：")
+            for l in r.stdout.strip().splitlines()[:8]:
+                log(f"    {l}")
         return 0
 
     if a.dry_run:
-        log("--dry-run：到此为止，提案留在 pending/ 供人工查看。")
+        log("--dry-run：到此为止。提案留在 pending/，不落库、不改文件、不回滚。")
         return 0
 
     r = py("apply_changeset.py")
