@@ -1,13 +1,17 @@
 """变更提案的审核与合并。
 
-自动更新链路的落地环节：kb-refresh 产出提案 -> 本脚本按 config.review 策略
-分级放行 -> 合并后自动跑 validate -> 移入 applied/ 或 rejected/。
+自动更新链路的落地环节：kb-refresh 产出提案 -> subAgent 独立复核并写 verdict
+-> 本脚本读 verdict 分级放行 -> 合并后自动跑 validate -> 移入 applied/ 或留 pending/。
+
+链路里没有人工环节。审核责任落在 verdict 文件上，本脚本只消费结论，
+因此它本身保持确定性：同样的提案 + 同样的 verdict 必然得到同样的结果，
+可以离线复跑、可以进 CI。缺 verdict 就不合并——没被审过不等于审过且通过。
 
 用法：
-    python scripts/apply_changeset.py --dry-run       # 只输出待审清单，不改文件
+    python scripts/apply_changeset.py --dry-run       # 只输出裁决清单，不改文件
     python scripts/apply_changeset.py                 # 按 config.yaml 策略执行
-    python scripts/apply_changeset.py --no-review     # 全自动，忽略审核开关
-    python scripts/apply_changeset.py --force-review  # 全部转人工
+    python scripts/apply_changeset.py --no-review     # 绕过 verdict 全放行（仅调试用）
+    python scripts/apply_changeset.py --force-review  # 全部拦下，用于空跑看清单
     python scripts/apply_changeset.py --file <path>   # 只处理指定提案
 退出码：0 正常；1 合并后校验失败（已自动回滚）；2 提案格式错误。
 """
@@ -27,19 +31,49 @@ SECTION_KEY = {"entities": "entities", "relations": "relations", "kb_cases": "ca
 CHANGE_KIND = {"entities": "entities", "relations": "relations", "kb_cases": "instances"}
 
 
-def classify(section: str, item: dict, cfg: dict, override: str | None) -> tuple[bool, str]:
+def load_verdict(path: Path) -> tuple[dict, str]:
+    """读取提案对应的 subAgent 裁决文件。返回 ({条目键: 裁决}, 整体说明)。
+
+    裁决由独立子代理写盘（见 scripts/verify_changeset.py 生成的审核任务），
+    本脚本只消费结论。故意不在这里做任何"像审核"的判断——审核要的是
+    独立取证，同一段上下文里边写边审等于自己给自己盖章。
+    """
+    vp = C.ROOT / "changesets" / "verdicts" / f"{path.stem}.verdict.yaml"
+    if not vp.exists():
+        return {}, f"缺 verdict 文件（期望 {vp.relative_to(C.ROOT)}）"
+    try:
+        data = yaml.safe_load(vp.read_text(encoding="utf-8")) or {}
+    except Exception as exc:                           # noqa: BLE001
+        return {}, f"verdict 文件解析失败：{exc!r}"
+    if (data.get("changeset") or "") not in ("", path.name):
+        return {}, f"verdict 声明的提案是 {data.get('changeset')}，与 {path.name} 不符"
+    items = {}
+    for row in data.get("items") or []:
+        key = (row or {}).get("key")
+        if key:
+            items[key] = row
+    return items, f"verdict by {data.get('verifier') or '?'} @ {data.get('verified_at') or '?'}"
+
+
+def item_key(section: str, item: dict) -> str:
+    """verdict 里定位条目的键。关系没有 id，用三元组。"""
+    if section == "relations":
+        return f"{item.get('from')}|{item.get('type')}|{item.get('to')}"
+    return str(item.get("id") or item.get("title") or "")
+
+
+def classify(section: str, item: dict, cfg: dict, override: str | None,
+             verdicts: dict | None = None) -> tuple[bool, str]:
     """返回 (是否可自动放行, 理由)。"""
     review = cfg.get("review") or {}
     if override == "auto":
         return True, "--no-review 强制自动"
     if override == "manual":
-        return False, "--force-review 强制人工"
+        return False, "--force-review 强制拦下"
 
     kind = CHANGE_KIND[section]
     if not (review.get("auto_apply") or {}).get(kind, False):
         return False, f"策略 auto_apply.{kind}=false"
-    if review.get("mode") != "auto" and kind != "instances":
-        return False, f"review.mode={review.get('mode')}，仅 instances 类允许自动"
 
     guards = review.get("guards") or {}
     min_conf = guards.get("min_confidence", "medium")
@@ -49,6 +83,15 @@ def classify(section: str, item: dict, cfg: dict, override: str | None) -> tuple
     if guards.get("require_ref_for_web") and (item.get("provenance") or {}).get("source_type") == "web":
         if not (item.get("provenance") or {}).get("ref"):
             return False, "web 来源缺少 ref (URL)"
+
+    if guards.get("require_verdict"):
+        row = (verdicts or {}).get(item_key(section, item))
+        if not row:
+            return False, "subAgent 未对该条目出裁决"
+        if row.get("verdict") != "pass":
+            return False, f"subAgent 裁定 {row.get('verdict')}：{row.get('reason') or '未说明'}"
+        return True, f"subAgent 通过：{row.get('reason') or '无附注'}"
+
     return True, f"符合 auto_apply.{kind} 且可信度 {conf} 达标"
 
 
@@ -108,10 +151,13 @@ def process(path: Path, cfg: dict, override: str | None, dry_run: bool) -> dict:
     mods = doc.get("modifications") or []
     dels = doc.get("deletions") or []
 
+    verdicts, verdict_note = ({}, "override 跳过 verdict") if override else load_verdict(path)
+
     print("=" * 68)
     print(f"提案 {path.name}")
     print(f"  标题：{head.get('title')}")
     print(f"  来源：{head.get('author')} | 创建 {head.get('created_at')}")
+    print(f"  审核：{verdict_note}" + (f"，覆盖 {len(verdicts)} 条" if verdicts else ""))
     print("=" * 68)
 
     auto: dict[Path, dict[str, list[dict]]] = {}
@@ -140,15 +186,15 @@ def process(path: Path, cfg: dict, override: str | None, dry_run: bool) -> dict:
             if not target:
                 print(f"  ! 缺少 target_file，跳过：{label_of(section, item)}")
                 continue
-            ok, reason = classify(section, item, cfg, override)
+            ok, reason = classify(section, item, cfg, override, verdicts)
             if ok:
                 blocked = sorted((collect_refs(section, item) & introduced) & gated)
                 if blocked:
                     ok = False
-                    reason = f"依赖本提案中待人工审核的条目：{', '.join(blocked)}"
+                    reason = f"依赖本提案中被拦下的条目：{', '.join(blocked)}"
             if not ok and item.get("id"):
                 gated.add(item["id"])
-            mark = "自动放行" if ok else "待人工审核"
+            mark = "自动放行" if ok else "拦下"
             print(f"  [{mark}] {label_of(section, item)}")
             print(f"      -> {target}")
             print(f"      理由：{reason}")
@@ -159,7 +205,8 @@ def process(path: Path, cfg: dict, override: str | None, dry_run: bool) -> dict:
                 pending_manual.append(f"{section}: {label_of(section, item)} — {reason}")
 
     if mods or dels:
-        print(f"\n[修改 {len(mods)} 条 | 删除 {len(dels)} 条] 一律转人工审核")
+        # 本脚本只会做文本级追加，改不了也删不了既有条目，所以这两类天然落不了地。
+        print(f"\n[修改 {len(mods)} 条 | 删除 {len(dels)} 条] 本脚本不支持，一律拦下")
         for m in mods:
             pending_manual.append(f"modification: {m}")
         for d in dels:
@@ -174,9 +221,9 @@ def process(path: Path, cfg: dict, override: str | None, dry_run: bool) -> dict:
         n_auto = 0
 
     print("\n" + "-" * 68)
-    print(f"结论：自动放行 {n_auto} 条 | 待人工审核 {len(pending_manual)} 条")
+    print(f"结论：自动放行 {n_auto} 条 | 拦下 {len(pending_manual)} 条")
     if pending_manual:
-        print("\n待审清单：")
+        print("\n拦下清单：")
         for line in pending_manual:
             print(f"  · {line}")
 
@@ -249,7 +296,7 @@ def main() -> int:
             continue
 
         if not result["auto"]:
-            print("\n无可自动放行内容，提案保留在 pending/ 等待人工处理。")
+            print("\n无可自动放行内容，提案保留在 pending/（补 verdict 或修正后下轮重试）。")
             continue
 
         print()
@@ -264,8 +311,8 @@ def main() -> int:
             shutil.move(str(path), str(dest))
             print(f"\n提案已全部合并，移入 changesets/applied/{path.name}")
         else:
-            print(f"\n自动部分已合并，仍有 {len(result['manual'])} 条待人工，"
-                  f"提案保留在 pending/（人工处理后需手工移入 applied/ 或 rejected/）")
+            print(f"\n自动部分已合并，仍有 {len(result['manual'])} 条被拦下，"
+                  f"提案保留在 pending/（下轮补齐 verdict 后可继续，或移入 rejected/）")
 
         print("重建索引：")
         res = subprocess.run([sys.executable, str(C.ROOT / "scripts" / "build_index.py")],

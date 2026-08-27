@@ -27,12 +27,17 @@ review:
     instances: true         # 新增知识库实例
     entities: true          # 新增本体实体
     relations: true         # 新增关系
-    schema: false           # 改元模型：始终需人工。动 schema 会让全库语义漂移，
-                            # 且 R001~R016 本身就是按 schema 写的，自动改等于自己改考卷
+    schema: true            # 改元模型也自动放行。代价是 schema 漂移不再有人眼兜底，
+                            # 唯一的回退是整次 git revert——所以 verdict 里要单独标出 schema 改动
   guards:
-    min_confidence: medium  # 低于此可信度的条目一律转人工，即使 mode=auto
+    min_confidence: medium  # 低于此可信度的条目拦下，留在 pending/ 等下一轮
     max_auto_entities: 30   # 单个 changeset 自动放行的实体上限
     require_ref_for_web: true
+    # subAgent 审核取代人工审核。verdict 文件由独立子代理写在
+    # changesets/verdicts/<提案名>.verdict.yaml，本脚本只读结论、不自己判断，
+    # 这样 apply 仍是确定性的、可离线复跑的。缺 verdict 一律不合并：
+    # 没被审过 != 审过且通过。
+    require_verdict: true
     # 无人值守专属护栏，由 daily_refresh.py 执行（apply_changeset.py 不读这几项）
     max_entities_per_day: 25    # 单日净增实体上限，防一次跑飞把库冲垮
     max_growth_ratio: 0.15      # 单日净增不得超过现有规模的比例
