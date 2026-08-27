@@ -7,6 +7,11 @@ __pycache__/
 .venv/
 venv/
 
+# playwright MCP 的页面快照与 console 日志，落在当前工作目录。
+# 必须忽略：它是检索过程的副产物，不是知识；留着会让下次
+# daily_refresh.py 的前置检查因"工作区不干净"直接拦住。
+.playwright-mcp/
+
 # 临时与备份
 *.bak
 *.tmpbak
