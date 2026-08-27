@@ -1,0 +1,165 @@
+# 知识库实例 · 前段缺陷与设备类异常处置
+default_provenance:
+  source_type: model_prior
+  ref: null
+  confidence: medium
+  created_at: "2026-08-26"
+  reviewed_by: null
+
+cases:
+  - id: kb.fab.particle_excursion_triage
+    domain: fab
+    title: 颗粒突增排查与处置
+    anomaly_ref: fab.anomaly.particle_excursion
+    detected_at_ref: fab.process.defect_scan
+    severity: critical
+    symptoms:
+      - 缺陷密度较基线突然跃升数倍
+      - 缺陷图(Defect Map)呈现特定空间分布形态
+      - 可能同时影响多个产品与多个批次
+    possible_causes:
+      - cause_ref: fab.cause.reticle_haze
+        likelihood: high
+        discriminator: >
+          缺陷在每个曝光场的同一相对位置重复出现——这是最有辨识度的签名。
+          只要看到逐场规律重复，优先查光罩，其余成因不会产生这种周期性。
+      - cause_ref: fab.cause.chamber_polymer_buildup
+        likelihood: high
+        discriminator: >
+          缺陷集中于经过特定腔体的批次，且该腔体 RF Hours 接近清洗周期上限。
+          按机台/腔体交叉比对缺陷率即可锁定。
+      - cause_ref: fab.cause.target_end_of_life
+        likelihood: medium
+        discriminator: 缺陷集中于 PVD 后工序，且靶材累积用量接近寿命上限
+      - cause_ref: fab.cause.env_excursion
+        likelihood: medium
+        discriminator: >
+          多个不相关工序同时缺陷上升，且分布随机无规律。
+          "跨工序同步"是环境型成因的标志——单一设备问题不会波及无关工序。
+      - cause_ref: fab.cause.slurry_agglomeration
+        likelihood: medium
+        discriminator: 缺陷为线状划伤而非点状颗粒，且集中于 CMP 后量测点
+    detection:
+      - metric_ref: fab.metric.defect_density
+        signal: >
+          计数跃升 + 空间分布形态 + 缺陷分类比例。三者结合才能定位，
+          单看总数只能确认异常存在，无法指向责任工序。
+    actions:
+      - action_ref: fab.action.hold_lot
+        order: 1
+        condition: >
+          立即执行。关键是圈定范围：以缺陷批次经过的机台与时段反查所有
+          同条件批次，而非只扣留已检出的批次。
+      - action_ref: fab.action.reticle_clean
+        order: 2
+        condition: 确认为逐场重复签名后送洗；无备用光罩时需先排程避让
+      - action_ref: fab.action.chamber_clean
+        order: 2
+        condition: 确认为腔体来源后执行，清洗后跑颗粒验证片确认恢复
+      - action_ref: fab.action.expand_sampling
+        order: 3
+        condition: >
+          成因未定期间必做。突增类异常的损失规模近似等于
+          检出延迟时间 × 产出速率，加严抽检是压缩这个乘积的唯一手段。
+    impact:
+      blocked_processes: [fab.process.pvd_metal, fab.process.dry_etch]
+      economic: >
+        影响面取决于检出延迟：光罩类问题影响该光罩全部曝光批次，
+        环境类问题波及全区。这类异常的经济损失主要由发现速度决定，
+        而非缺陷本身严重度。
+    tags: [缺陷, 颗粒, 排查, 光罩]
+
+  - id: kb.fab.cmp_scratch_triage
+    domain: fab
+    title: CMP 划伤排查与处置
+    anomaly_ref: fab.anomaly.cmp_scratch
+    detected_at_ref: fab.process.defect_scan
+    severity: high
+    symptoms:
+      - 缺陷分类中线状划伤计数上升
+      - 划伤多呈弧形或直线，方向与研磨运动一致
+      - 金属层划伤在电测阶段表现为短路
+    possible_causes:
+      - cause_ref: fab.cause.pad_end_of_life
+        likelihood: high
+        discriminator: >
+          划伤率随研磨垫累积使用时长上升，且去除率同步下降。
+          两个趋势同时出现基本可确认；换垫后立即恢复是最终验证。
+      - cause_ref: fab.cause.slurry_agglomeration
+        likelihood: medium
+        discriminator: >
+          划伤突发而非渐增，且研磨垫寿命尚在中段。查研磨液批号、
+          过滤器压差与储存时长；换新液后改善则确认。
+      - cause_ref: fab.param.cmp_pressure
+        likelihood: low
+        discriminator: 仅在配方变更或压力控制异常后出现，查参数变更记录
+    detection:
+      - metric_ref: fab.metric.defect_density
+        signal: scratch 类缺陷计数与研磨垫使用时长做相关性分析
+      - metric_ref: fab.metric.film_thickness
+        signal: 去除率下降趋势，与划伤率上升同步则指向研磨垫寿命
+    actions:
+      - action_ref: fab.action.replace_consumable
+        order: 1
+        condition: >
+          确认研磨垫寿命末期后更换，换后跑首件确认。
+          换垫周期本身是决策变量：提前换降低划伤但抬高耗材成本。
+      - action_ref: fab.action.hold_lot
+        order: 2
+        condition: 金属层划伤须扣留，短路风险不可放行；介电层轻微划伤可评估后放行
+    impact:
+      blocked_processes: [fab.process.cvd_ild]
+      economic: >
+        金属层划伤致短路通常不可挽回。研磨垫换用周期是良率与耗材成本的
+        直接权衡点，也是这类异常最可控的经营旋钮。
+    tags: [CMP, 划伤, 耗材]
+
+  - id: kb.fab.implant_dose_drift_triage
+    domain: fab
+    title: 注入剂量漂移排查与处置
+    anomaly_ref: fab.anomaly.implant_dose_drift
+    detected_at_ref: fab.process.wat
+    severity: high
+    symptoms:
+      - WAT Vt 或方阻整批偏移，超出管制界限
+      - 偏移集中于特定注入机台的批次
+      - 前段各站点量测记录均正常（图形与膜厚无异常）
+    possible_causes:
+      - cause_ref: fab.cause.beam_current_drift
+        likelihood: high
+        discriminator: >
+          按注入机台分组比对 Vt 分布，特定机台整体偏移即指向该机台束流系统。
+          做剂量校验片(Dose Monitor Wafer)测方阻可直接量化偏差量。
+      - cause_ref: fab.cause.recipe_misload
+        likelihood: medium
+        discriminator: 单批突变且边界清晰，核对配方与派工记录
+      - cause_ref: fab.param.implant_dose
+        likelihood: medium
+        discriminator: 参数变更记录中有剂量调整而未做验证，属变更管理漏洞
+    detection:
+      - metric_ref: fab.metric.wat_vt
+        signal: Vt 均值偏移，按机台分组后差异显著
+      - metric_ref: fab.metric.sheet_resistance
+        signal: >
+          方阻是比 Vt 更早的观测量。若已有注入后方阻抽测，可将检出
+          从 WAT 提前数十道工序，这是缩短此类异常暴露窗口的关键手段。
+    actions:
+      - action_ref: fab.action.hold_lot
+        order: 1
+        condition: >
+          扣留该机台自上次校验通过后的全部批次。注意范围可能很大——
+          因为无在线量测，中间批次全部处于未验证状态。
+      - action_ref: fab.action.recipe_adjust
+        order: 2
+        condition: 以校验片实测反算补偿量，同时开设备工单处理束流系统
+      - action_ref: fab.action.expand_sampling
+        order: 3
+        condition: >
+          增设注入后方阻抽测。这是本异常的根本改善方向：
+          问题不在漂移本身，而在于缺乏在线反馈导致检出滞后。
+    impact:
+      blocked_processes: [fab.process.cp_test]
+      economic: >
+        检出滞后是主要损失来源。WAT 暴露时批次已完成前段绝大部分工序，
+        累计加工成本全部沉没。增设中段方阻抽测的成本远低于一次批量失效。
+    tags: [注入, 电性, 延迟暴露]

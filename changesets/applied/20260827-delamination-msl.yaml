@@ -1,0 +1,112 @@
+# 变更提案：为界面分层补处置知识库实例
+# 首个 source_type: web 条目，URL 经浏览器实访确认
+
+changeset:
+  id: 20260827-delamination-msl
+  title: 补 ap.anomaly.delamination 的处置 Playbook（含 MSL floor life 判据）
+  created_at: "2026-08-27"
+  author: agent:kb-refresh
+  rationale: |
+    补的是"本体有异常但无 kb 实例"这类缺口。ap.anomaly.delamination
+    severity=high，风险图谱已连 8 条关系（3 个 cause、detected_at、
+    2 个 mitigated_by、blocks、以及 may_cause 到 ft_yield_drop），
+    还被 kb.ap.ft_yield_drop_triage 当 medium 可能性的上游原因引用——
+    也就是说排查终测良率下降时会指到分层，但指过来之后没有任何处置知识。
+    图连得越好，这个空洞越显眼。
+
+    本次的判据核心是 MSL floor life 的具体数值门槛。此前 emc_moisture
+    这个根因只能写"查开封时间与储存条件"，无法判断多久算超期；
+    补上逐级数值后，discriminator 才是可执行的判断动作而非提示。
+
+    本提案只新增 kb 实例，不新建实体与关系，因此可走 instances 自动合并。
+
+    已知不完整（留待后续提案）：actions 里引用了
+    ap.action.plasma_clean_rerun，但风险图谱中 delamination 尚无指向它的
+    mitigated_by 关系。这不违反校验规则（R014 只校验被引实体存在且类型正确），
+    但图上确实缺一条边。没有为了让本提案"干净"而删掉这个动作——
+    污染点是知识不完整，不是提案不纯。
+
+additions:
+  kb_cases:
+    - target_file: kb/ap/package-test-cases.yaml
+      item:
+        id: kb.ap.delamination_triage
+        domain: ap
+        title: 界面分层排查与处置
+        anomaly_ref: ap.anomaly.delamination
+        detected_at_ref: ap.process.aoi
+        severity: high
+        symptoms:
+          - C-SAM 超声扫描检出塑封料与芯粒、基板或引线框架界面剥离
+          - 分层面积或位置超出允收标准，常见于芯粒边角与引线框架指部
+          - 可能不伴随任何电性异常——分层是可靠性失效前兆，非即时功能失效
+          - 严重时后续回流焊出现爆米花效应（popcorn cracking）
+        possible_causes:
+          - cause_ref: ap.cause.emc_moisture
+            likelihood: high
+            discriminator: >
+              取该批塑封料的开封时刻与车间温湿度记录，按 MSL 等级比对
+              floor life 门槛（30°C 条件下 MSL 2 为 1 年、2a 为 4 周、
+              3 为 168 小时、4 为 72 小时、5 为 48 小时、5a 为 24 小时；
+              MSL 1 不限、MSL 6 须用前烘烤）。暴露时长超过对应门槛即确认
+              吸湿为主因。两个辅助判别：分层跨模腔随机分布而非集中，
+              且同期开封的其他批次同步出现。注意车间高于 30°C 或
+              相对湿度高于 60% 时实际 floor life 短于表值，不能直接套用。
+          - cause_ref: ap.cause.pad_contamination
+            likelihood: medium
+            discriminator: >
+              分层集中在固定界面（焊垫或芯粒背面）而非随机分布，
+              且能追到特定等离子清洁批次或上游制程时窗。
+              与吸湿最快的区分：调整料的储存条件后不改善，
+              而追加等离子清洁后改善。
+          - cause_ref: ap.param.cure_temp
+            likelihood: medium
+            discriminator: >
+              调固化温度记录，分层与特定烘箱或时段吻合，
+              且位置偏向装片胶界面而非塑封料界面。
+              温度不足致交联不全，此时芯粒剪切强度同步偏低——
+              这一点可与吸湿区分，吸湿通常不压低剪切强度。
+        detection:
+          - metric_ref: ap.metric.die_shear_strength
+            signal: >
+              剪切强度低于规格下限，且失效模式为界面剥离而非芯粒体破裂。
+              失效模式比数值本身更有判别力
+          - metric_ref: ap.metric.void_ratio
+            signal: 分层面积占比超允收标准，按界面类型与位置分类统计用于定位成因
+        actions:
+          - action_ref: ap.action.hold_lot
+            order: 1
+            condition: >
+              必须优先执行。分层不可逆，且不一定伴随电性异常，
+              纯靠终测拦不住——扣留是唯一能防止漏出至客户端的手段
+          - action_ref: ap.action.bake_emc
+            order: 2
+            condition: >
+              仅适用于尚未使用的库存料，目的是防止复发。
+              对已分层的成品无效：返烤去除水分，不能重新贴合已剥离的界面。
+              开封已超期者直接报废，不做返烤——超期料交联性能已不可恢复
+          - action_ref: ap.action.plasma_clean_rerun
+            order: 3
+            condition: 仅当判定为焊垫污染分支时执行，对吸湿成因无效
+        impact:
+          blocked_processes: [ap.process.packing]
+          economic: >
+            分层是可靠性失效前兆，漏出至客户端的代价远高于内部拦截：
+            客户端失效触发退货、批次追溯与信誉损失，量级远超本批报废。
+            塑封料的时效管理成本极低，属预防远优于处置的典型场景。
+        tags: [塑封, 分层, 可靠性, 材料时效, MSL]
+        notes: >
+          MSL floor life 数值来自 TI 应用报告 SPRABY1A 的 Table 1
+          (Factory Floor Life @ 30°C)，该表原始出处是 IPC/JEDEC J-STD-033
+          （管搬运、储存与 floor life），不是 J-STD-020（管回流焊峰值温度
+           分类 Tc）。两个标准常被混引，此处按 TI 原文的归属记录。
+          J-STD-033 官方页面 URL 含 "033c"，但实际服务的是 J-STD-033D
+          (Published Apr 2018)，且 033d 路径返回 404，故 033c 为正规入口。
+          除 MSL 数值外，本条的根因排序与判别逻辑来自模型预训练知识，
+          未经产线数据验证。
+        provenance:
+          source_type: web
+          ref: https://www.ti.com/jp/lit/an/spraby1a/spraby1a.pdf
+          confidence: medium
+          created_at: "2026-08-27"
+          reviewed_by: null

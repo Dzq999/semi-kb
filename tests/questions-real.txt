@@ -1,0 +1,72 @@
+# 真实工厂问题集（58 条，来源：专有名词介绍/问题集.xlsx，2026-08-27 导入）
+#
+# 格式：<expect>\t<question>
+#   refuse    = 不允许判成"可答"。判 2（超范围）或 3（未覆盖）都算通过。
+#   answerable = 必须判成"可答"。
+#
+# 为什么绝大多数是 refuse：这些问题 84% 是实例级的——带时间词（昨天/近一周/
+# 当前）、要计数排名（多少/top n/最高的 5 个）、或含具体实例 ID（EQP01、LOTA、
+# CVD002）。本体是类型级的，没有任何 Lot 实例、时间戳、计数。
+# "Hold 意味着什么"答得了，"现在哪些 Lot 被 Hold"答不了。
+#
+# 首次跑这份夹具时 58 条里有 16 条被判成"可答"，全是误报：锚点定位到
+# core.state.hold、意图词命中 CQ18，分数够就放行了。误报是最坏方向的错——
+# 答不出来会促使人去补，答错了不会。这份夹具就是为了让这类错不再回来。
+refuse	客户A的Lot需要提前到月底出货，当前的WIP是否能满足客户A的出货需求，如果不满足，需要在什么时间点补下多少批Lot?
+refuse	近一周哪些Lot是被系统Hold？其中最频繁的前三个系统 Hold的原因是啥？
+refuse	近一周，型号A的设备中，导致Lot被Hold的最频繁的三个Alarm Code是啥？
+refuse	当前哪些设备的等待Lot数量超过了30，这些Lot分别是哪些Product？
+refuse	昨天因为EQP01 Down，影响了哪些Lot?影响了多少WIP的产能？
+refuse	当前因为Q-Time被Hold的Lot有哪些，其中等待PIE签核的有哪些？
+refuse	昨天跳站频率最高的是哪个Stage？
+refuse	昨天，LOTA经过Step1后，与LotA存放在同一载具的Lot有哪些？这些Lot中哪些已经入库？
+refuse	昨天，EQP01在处理完LOTA后，到发生Alarm时间区间内处理了哪些Lot?
+refuse	昨天哪些Lot因为超过XXX规格的SPEC而被Hold？
+refuse	当前哪些Lot的Q-Time超过了一半？
+refuse	昨天因为系统原因被Hold时长较长的三个设备有哪些？
+refuse	A客户的哪些WO需要工艺段XX支持？
+refuse	对于A客户来说，未来一个月可以出多少货给客户？
+refuse	xxx lot上哪些wafer被同一站点量测多次？
+refuse	跳站（Skip）频率最高的制程Step是哪个？涉及哪些Lot？
+refuse	过去一周，WIP堆货量最高的5个机台是哪些？
+refuse	过去2小时内，哪些机台一直处于空闲状态？
+refuse	当前XX 区域可派工的机台有哪些？
+refuse	当前xx 机台下可派工的lot 有哪些？
+refuse	过去24小时，XX 机台的历史加工记录
+refuse	当前被mark 的lot 有多少？
+refuse	当前bullet lot 有多少个？
+refuse	这片有defect的Wafer 前15个站别 经过了哪些机台和Chamber
+refuse	XX机台是否down机，什么时候down机
+refuse	机台 EAP Hold统计
+refuse	最近一个月内,CVD002设备加工了多少Lot?
+refuse	Lot TNC0001 的生产记录
+refuse	机台 YMSRS92 的最近一周的运行状况
+refuse	统计 CMP 区设备今天是否有发生异常，异常处理的情况
+refuse	目前厂内多少设备在run，多少设备down了
+refuse	厂里有多少台设备，分别是哪些厂商的，已上线多少台。
+refuse	过去某一段时间的产出(Wafer Out)是多少？生产周期(Cycle Time)又是多少？
+refuse	FAB内，目前IDLE的机台总数是多少？
+refuse	RecipeA今日run过多少个LOT
+refuse	根据WIP，接下来24/48小时的瓶颈设备可能是哪些
+refuse	设备A chamber A有问题，需要一段时间内chamber A所有的wafer记录
+refuse	XX机台，今天的WPH是多少？
+refuse	未来1小时内，哪些LOT，Q-Time即将到期
+refuse	LOA今日经过了哪些机台？
+refuse	今日共报废多少片wafer？
+refuse	按天/周/月产能top n的设备list
+refuse	昨天实际出货多少片？
+refuse	按天/周/月设备利用率top n的设备list
+refuse	哪些机台IDLE已经超过1小时？
+refuse	请帮忙输出昨天一整天LITHO区域的所有机台的OEE
+refuse	上一个班次的WIP状况如何，月底xx产品顺利出货嘛？如不能，请给出合理建议
+refuse	这个月的整体OEE（设备综合效率）表现如何？哪些产线的稼动率低于目标值？
+refuse	本周的WIP（在制品）水位异常高，请分析是哪个工站造成的瓶颈？
+refuse	某个产品的 Cycle Time 比标准多了2小时，是哪个工序卡住了？怎么查瓶颈？
+refuse	昨天有5个Lot被Hold，被Hold住的根因是什么
+refuse	上周有多少Wafer Out/WO？
+answerable	分析一下WIP最高的原因是什么
+refuse	这些hold Lot 的原因是什么
+refuse	现在priority 1 、2、3、4的Lot的CT/Cycle Time分别是多少？
+refuse	现在的Lot被hold，查看下处理情况
+refuse	支持回复未来多少时间内有多少WO，比如3天后有多少WO（1周/1季度/1年后WO）
+refuse	客户想Pull in（提前交期）某张订单或产品，请分析是否可达成？以及其对其他订单的影响？

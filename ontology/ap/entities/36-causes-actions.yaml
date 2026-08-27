@@ -1,0 +1,186 @@
+# ap 层 · 根因与处置动作
+default_provenance:
+  source_type: model_prior
+  ref: null
+  confidence: medium
+  created_at: "2026-08-26"
+  reviewed_by: null
+
+entities:
+  # ---------------- 根因 ----------------
+  - id: ap.cause.pad_contamination
+    type: Cause
+    name_zh: 焊垫污染
+    name_en: Bond Pad Contamination
+    domain: ap
+    description: >
+      焊垫表面有机残留、氧化或溢胶覆盖，阻碍金属间化合物形成。
+      来源可能在前段（钝化层残留）或后段（装片溢胶）。
+    economic_hooks: {affects: [yield, rework_rate], note: 前后段责任划分影响改善责任归属}
+
+  - id: ap.cause.capillary_wear
+    type: Cause
+    name_zh: 瓷嘴磨损
+    name_en: Capillary Wear
+    domain: ap
+    description: >
+      键合瓷嘴端面磨损或积屑，改变超声能量传递效率。特征是不良集中于
+      特定机台特定线位，且随键合次数累积恶化。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 按键合次数定期更换，延用则不良率抬升}
+
+  - id: ap.cause.bond_param_drift
+    type: Cause
+    name_zh: 键合参数漂移
+    name_en: Bond Parameter Drift
+    domain: ap
+    description: 超声换能器效率衰退或加热台温度偏移，致实际键合能量偏离设定。
+    economic_hooks: {affects: [yield], note: 需定期以拉力/剪切数据校核参数有效性}
+
+  - id: ap.cause.emc_moisture
+    type: Cause
+    name_zh: 塑封料吸湿
+    name_en: Mold Compound Moisture
+    domain: ap
+    description: >
+      塑封料开封后吸湿或超期使用，模压时水分汽化形成空洞与分层。
+      是典型的材料状态型根因，与设备无关。
+    economic_hooks: {affects: [yield, scrap_rate, cost_per_unit], note: 返烤可挽回，超期料须报废}
+
+  - id: ap.cause.blade_wear
+    type: Cause
+    name_zh: 刀片磨损/崩齿
+    name_en: Dicing Blade Wear / Chipping
+    domain: ap
+    description: 切割刀磨耗或局部崩齿，切割负荷上升致崩边加剧。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 高频耗材，寿命曲线末段风险陡增}
+
+  - id: ap.cause.grind_wheel_clog
+    type: Cause
+    name_zh: 砂轮堵塞
+    name_en: Grind Wheel Clogging
+    domain: ap
+    description: 砂轮磨屑堵塞降低切削效率，实际压力上升引入亚表面微裂纹。
+    economic_hooks: {affects: [yield, scrap_rate], note: 引入的裂纹当站不可检，属延迟型风险}
+
+  - id: ap.cause.epoxy_bleed
+    type: Cause
+    name_zh: 装片胶溢流
+    name_en: Epoxy Bleed Out
+    domain: ap
+    description: 点胶量过多或胶体黏度偏低致胶体溢出至焊垫区，直接造成键合不粘。
+    economic_hooks: {affects: [yield, rework_rate], note: 跨工序传导型根因，装片致键合不良}
+
+  - id: ap.cause.probe_card_wear
+    type: Cause
+    name_zh: 测试治具磨损
+    name_en: Probe Card / Socket Wear
+    domain: ap
+    description: >
+      探针或测试座接触面磨损氧化致接触电阻上升，产生伪失效。
+      特征为重测通过率高且失效集中于特定 Site。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 伪失效造成良品过杀，损失被误计为品质问题}
+
+  - id: ap.cause.reflow_profile_drift
+    type: Cause
+    name_zh: 回流曲线漂移
+    name_en: Reflow Profile Drift
+    domain: ap
+    description: 回流炉温区衰退或链速偏移致实际受热曲线偏离设定。
+    economic_hooks: {affects: [yield], note: 需定期以炉温曲线仪校核}
+
+  - id: ap.cause.fixture_shortage
+    type: Cause
+    name_zh: 治具/载具短缺
+    name_en: Fixture & Carrier Shortage
+    domain: ap
+    description: >
+      测试治具、烧机板或载具数量不足，机台可用但无法开工。
+      是后段 WIP 堆积中容易被忽略的非设备型成因。
+    economic_hooks: {affects: [throughput, cycle_time, capacity_commit], note: 治具投资不足会隐性锁死产能}
+
+  # ---------------- 处置动作 ----------------
+  - id: ap.action.hold_lot
+    type: Action
+    name_zh: 扣留批次
+    name_en: Hold Lot
+    domain: ap
+    description: 冻结受影响批次并圈定同机台同时段关联批次，防止流入不可逆工序。
+    economic_hooks: {affects: [cycle_time, capacity_commit], note: 塑封为不可逆节点，此前止损价值最高}
+
+  - id: ap.action.plasma_clean_rerun
+    type: Action
+    name_zh: 追加等离子清洁
+    name_en: Additional Plasma Clean
+    domain: ap
+    description: 对疑似焊垫污染批次补做等离子清洁后重新键合验证。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 成本低见效快，是 NSOP 的首选处置}
+
+  - id: ap.action.replace_capillary
+    type: Action
+    name_zh: 更换瓷嘴
+    name_en: Replace Capillary
+    domain: ap
+    description: 更换键合瓷嘴并跑首件拉力确认恢复。
+    economic_hooks: {affects: [yield, cost_per_unit, equipment_oee], note: 换嘴需停机与首件验证}
+
+  - id: ap.action.bond_param_doe
+    type: Action
+    name_zh: 键合参数优化
+    name_en: Bond Parameter DOE
+    domain: ap
+    description: >
+      以功率-压力-时间-温度做实验设计重建工艺窗口，适用于线材批号切换
+      或持续性不粘。须以拉力与剪切数据双指标验证。
+    economic_hooks: {affects: [yield, rework_rate], note: 见效慢但根治，避免反复补偿}
+
+  - id: ap.action.bake_emc
+    type: Action
+    name_zh: 塑封料返烤
+    name_en: Bake Mold Compound
+    domain: ap
+    description: 对吸湿塑封料按规范返烤除湿；超过开封期限者直接报废不返烤。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 返烤成本远低于空洞造成的报废}
+
+  - id: ap.action.replace_blade
+    type: Action
+    name_zh: 更换/修整切割刀
+    name_en: Replace or Dress Dicing Blade
+    domain: ap
+    description: 更换刀片或做修刀恢复切削锋利度，换后首件量测崩边确认。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 提前换刀是崩边率与耗材成本的平衡决策}
+
+  - id: ap.action.adjust_dispense
+    type: Action
+    name_zh: 调整点胶参数
+    name_en: Adjust Dispense Parameters
+    domain: ap
+    description: 修正点胶量、针头高度或胶体温控，抑制溢胶与空洞。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 同时改善键合不粘与装片空洞}
+
+  - id: ap.action.replace_probe_card
+    type: Action
+    name_zh: 更换/清洗测试治具
+    name_en: Replace or Clean Probe Card
+    domain: ap
+    description: >
+      清洗或更换探针卡与测试座，并对疑似伪失效批次重测。
+      重测前须先确认治具已恢复，否则重测数据无效。
+    economic_hooks: {affects: [yield, cost_per_unit], note: 挽回被过杀的良品，直接回收可交付数量}
+
+  - id: ap.action.retest
+    type: Action
+    name_zh: 重测
+    name_en: Retest
+    domain: ap
+    description: >
+      对失效品重新测试以区分伪失效与真实失效。重测次数须受规范限制，
+      无限重测等于放宽标准。
+    economic_hooks: {affects: [yield, throughput], note: 占用测试产能，需权衡挽回量与产能损失}
+
+  - id: ap.action.reallocate_fixture
+    type: Action
+    name_zh: 调配治具/改派机台
+    name_en: Reallocate Fixture or Machine
+    domain: ap
+    description: 跨产品调配测试治具与烧机板，或改派至等价机台缓解堆积。
+    economic_hooks: {affects: [throughput, cycle_time], note: 短期缓解，长期需补充治具投资}

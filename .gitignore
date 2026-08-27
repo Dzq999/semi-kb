@@ -1,0 +1,16 @@
+# 派生产物：由 scripts/build_index.py 从本体重新生成
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 临时与备份
+*.bak
+*.tmpbak
+*.tmp
+.DS_Store
+Thumbs.db
+logs/

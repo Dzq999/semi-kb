@@ -1,0 +1,104 @@
+# fab 层 · 风险图谱（异常-根因-检出-处置-阻塞）
+# 与 20-flow-precedes.yaml 共同构成"主流程 + 风险图谱"完整框架
+default_provenance:
+  source_type: model_prior
+  ref: null
+  confidence: medium
+  created_at: "2026-08-26"
+  reviewed_by: null
+
+relations:
+  # ---- CD 超规 ----
+  - {from: fab.cause.lens_contamination,  type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 局部像差致固定位置偏移}
+  - {from: fab.cause.hotplate_nonuniform, type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 片内梯度型分布}
+  - {from: fab.cause.resist_lot_change,   type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 全片均匀偏移，跨机台同步出现}
+  - {from: fab.cause.recipe_misload,      type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 批间跳变，边界清晰}
+  - {from: fab.cause.env_excursion,       type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 温湿度漂移影响涂布与显影}
+  - {from: fab.param.exposure_dose,       type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 剂量为 CD 主控旋钮}
+  - {from: fab.param.exposure_focus,      type: may_cause, to: fab.anomaly.cd_out_of_spec, note: 离焦伴随侧壁形貌恶化}
+  - {from: fab.anomaly.cd_out_of_spec,    type: detected_at, to: fab.process.cd_measure}
+  - {from: fab.anomaly.cd_out_of_spec,    type: mitigated_by, to: fab.action.photo_rework, note: 限蚀刻前}
+  - {from: fab.anomaly.cd_out_of_spec,    type: mitigated_by, to: fab.action.recipe_adjust}
+  - {from: fab.anomaly.cd_out_of_spec,    type: mitigated_by, to: fab.action.hold_lot}
+  - {from: fab.anomaly.cd_out_of_spec,    type: blocks, to: fab.process.dry_etch, note: 蚀刻后不可逆，须先判定}
+
+  # ---- 套刻偏移 ----
+  - {from: fab.param.overlay_offset,      type: may_cause, to: fab.anomaly.overlay_shift, note: 补正模型失配致越修越偏}
+  - {from: fab.cause.recipe_misload,      type: may_cause, to: fab.anomaly.overlay_shift}
+  - {from: fab.cause.env_excursion,       type: may_cause, to: fab.anomaly.overlay_shift, note: 热变形致旋转/放大分量}
+  - {from: fab.anomaly.overlay_shift,     type: detected_at, to: fab.process.overlay_measure}
+  - {from: fab.anomaly.overlay_shift,     type: mitigated_by, to: fab.action.photo_rework}
+  - {from: fab.anomaly.overlay_shift,     type: mitigated_by, to: fab.action.recipe_adjust, note: APC 补正回馈}
+  - {from: fab.anomaly.overlay_shift,     type: blocks, to: fab.process.dry_etch}
+
+  # ---- 颗粒突增 ----
+  - {from: fab.cause.env_excursion,        type: may_cause, to: fab.anomaly.particle_excursion, note: 随机分布签名}
+  - {from: fab.cause.reticle_haze,         type: may_cause, to: fab.anomaly.particle_excursion, note: 逐场规律重复签名}
+  - {from: fab.cause.chamber_polymer_buildup, type: may_cause, to: fab.anomaly.particle_excursion, note: 剥落颗粒}
+  - {from: fab.cause.target_end_of_life,   type: may_cause, to: fab.anomaly.particle_excursion, note: 靶材剥落}
+  - {from: fab.cause.slurry_agglomeration, type: may_cause, to: fab.anomaly.particle_excursion}
+  - {from: fab.anomaly.particle_excursion, type: detected_at, to: fab.process.defect_scan}
+  - {from: fab.anomaly.particle_excursion, type: mitigated_by, to: fab.action.hold_lot}
+  - {from: fab.anomaly.particle_excursion, type: mitigated_by, to: fab.action.chamber_clean}
+  - {from: fab.anomaly.particle_excursion, type: mitigated_by, to: fab.action.reticle_clean}
+  - {from: fab.anomaly.particle_excursion, type: mitigated_by, to: fab.action.expand_sampling, note: 收窄检出窗口限制受影响批次}
+  - {from: fab.anomaly.particle_excursion, type: blocks, to: fab.route.cmos_logic_main, note: 突增期间该路径产出全部待判}
+
+  # ---- 蚀刻残留 ----
+  - {from: fab.cause.epd_failure,              type: may_cause, to: fab.anomaly.etch_residue}
+  - {from: fab.cause.chamber_polymer_buildup,  type: may_cause, to: fab.anomaly.etch_residue, note: 选择比漂移}
+  - {from: fab.param.etch_time,                type: may_cause, to: fab.anomaly.etch_residue, note: 蚀刻量不足}
+  - {from: fab.anomaly.etch_residue,           type: detected_at, to: fab.process.defect_scan}
+  - {from: fab.anomaly.etch_residue,           type: mitigated_by, to: fab.action.recipe_adjust, note: 补蚀刻}
+  - {from: fab.anomaly.etch_residue,           type: mitigated_by, to: fab.action.chamber_clean}
+  - {from: fab.anomaly.etch_residue,           type: blocks, to: fab.process.pvd_metal, note: 残留会被后续金属层覆盖固化}
+
+  # ---- CMP 划伤 ----
+  - {from: fab.cause.slurry_agglomeration, type: may_cause, to: fab.anomaly.cmp_scratch}
+  - {from: fab.cause.pad_end_of_life,      type: may_cause, to: fab.anomaly.cmp_scratch}
+  - {from: fab.param.cmp_pressure,         type: may_cause, to: fab.anomaly.cmp_scratch, note: 压力过高加剧机械损伤}
+  - {from: fab.anomaly.cmp_scratch,        type: detected_at, to: fab.process.defect_scan}
+  - {from: fab.anomaly.cmp_scratch,        type: mitigated_by, to: fab.action.replace_consumable}
+  - {from: fab.anomaly.cmp_scratch,        type: mitigated_by, to: fab.action.hold_lot}
+  - {from: fab.anomaly.cmp_scratch,        type: blocks, to: fab.process.cvd_ild, note: 金属层划伤短路风险须先确认}
+
+  # ---- 注入剂量漂移 ----
+  - {from: fab.cause.beam_current_drift, type: may_cause, to: fab.anomaly.implant_dose_drift}
+  - {from: fab.param.implant_dose,       type: may_cause, to: fab.anomaly.implant_dose_drift}
+  - {from: fab.anomaly.implant_dose_drift, type: detected_at, to: fab.process.wat, note: 无在线量测，WAT 才暴露}
+  - {from: fab.anomaly.implant_dose_drift, type: mitigated_by, to: fab.action.hold_lot}
+  - {from: fab.anomaly.implant_dose_drift, type: mitigated_by, to: fab.action.recipe_adjust, note: 剂量校验片反算补偿}
+  - {from: fab.anomaly.implant_dose_drift, type: mitigated_by, to: fab.action.expand_sampling, note: 增加方阻抽测提前暴露}
+  - {from: fab.anomaly.implant_dose_drift, type: blocks, to: fab.process.cp_test}
+
+  # ---- 光刻机停机（瓶颈异常，级联到 WIP 堆积）----
+  - {from: fab.anomaly.scanner_down,   type: may_cause, to: core.anomaly.wip_bubble, note: 瓶颈停机同时造成上游堆积与下游断流}
+  - {from: fab.anomaly.scanner_down,   type: detected_at, to: fab.process.photo_exposure}
+  - {from: fab.anomaly.scanner_down,   type: mitigated_by, to: fab.action.skip_ahead, note: 需确认替代机台工艺等价性}
+  - {from: fab.anomaly.scanner_down,   type: blocks, to: fab.process.photo_exposure}
+  - {from: fab.anomaly.scanner_down,   type: blocks, to: fab.route.cmos_logic_main}
+
+  # ---- refines：fab 概念归入 core 骨架 ----
+  - {from: fab.anomaly.scanner_down,       type: refines, to: core.anomaly.equipment_down, provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}}
+  - {from: fab.anomaly.particle_excursion, type: refines, to: core.anomaly.quality_excursion, provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}}
+  - {from: fab.anomaly.cd_out_of_spec,     type: refines, to: core.anomaly.quality_excursion}
+  - {from: fab.metric.cd_uniformity,       type: refines, to: core.metric.yield, note: CD 分布宽度决定电参良率上限}
+  - {from: fab.metric.defect_density,      type: refines, to: core.metric.yield}
+  - {from: fab.param.furnace_temp,         type: refines, to: core.param.cleanroom_temp, note: 均为受控温度类参数，控制范式同源, confidence: low}
+  - {from: fab.stage.photo,                type: refines, to: core.risknode.bottleneck_station, note: 光刻通常为前段瓶颈}
+
+  # ---- analogous_to：跨行业类比 ----
+  - from: fab.stage.diffusion
+    type: analogous_to
+    to: ext.stage.thermal_process
+    note: >
+      前段热制程段 ↔ 玻璃制造高温工艺段。共性：热预算控制、温区均匀性、
+      批式装载率与能耗、升降温速率致应力缺陷。玻璃项目已建的热工艺通用
+      框架可直接复用于炉管类工序建模。
+    provenance: {source_type: analogy, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}
+
+  - from: fab.metric.defect_density
+    type: analogous_to
+    to: ext.metric.defect_rate
+    note: 缺陷密度 ↔ 通用不良率。共性：空间分布签名用于溯源、与单位面积/个体数共同决定良率
+    provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-26", reviewed_by: null}

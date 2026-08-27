@@ -1,0 +1,155 @@
+# 变更提案示例
+# 这是 kb-refresh 子流程的产出形态：Agent 找到新资料后不直接改本体，
+# 而是产出此类提案，经 apply_changeset.py 按 config.review 策略决定放行或转人工。
+#
+# 本文件为 Week 1 演示用样例，用于验证自动更新链路可跑通。
+# 其中 web 来源的 ref 为占位示例，实际执行 kb-refresh 时必须填入真实可访问 URL
+# 并经人工核对——这正是 config.review 默认 entities:false 的原因。
+
+changeset:
+  id: cs-20260826-euv-litho
+  title: 补充 EUV 光刻工序与随机性缺陷异常
+  created_at: "2026-08-26"
+  author: kb-refresh
+  summary: >
+    先进制程光刻本体缺口补充。现有 fab.stage.photo 下仅有 DUV 类工序，
+    未覆盖 EUV。同时补入 EUV 特有的随机性缺陷(Stochastic Defect)异常模式，
+    该异常在 DUV 制程中不显著，属新增概念而非既有概念细化。
+  rationale: >
+    冷启动时按成熟制程建模，先进制程为已知缺口。本提案演示"发现缺口 -> 产出提案
+    -> 审核 -> 合并 -> 重建索引"的完整链路。
+
+additions:
+  entities:
+    - target_file: ontology/fab/entities/13-processes-film-cmp-test.yaml
+      item:
+        id: fab.process.euv_exposure
+        type: Process
+        name_zh: EUV 曝光
+        name_en: EUV Exposure
+        domain: fab
+        stage: fab.stage.photo
+        materials: [core.material.wafer, fab.material.reticle]
+        description: >
+          13.5 nm 极紫外光曝光，用于先进制程关键层。全反射光学系统、真空环境、
+          光罩需 Pellicle 保护。光源功率与光子散粒噪声是产能与缺陷的主要约束。
+        parameters: [fab.param.exposure_dose, fab.param.exposure_focus]
+        metrics: [fab.metric.cd_uniformity, fab.metric.overlay_error]
+        economic_hooks:
+          affects: [yield, throughput, capacity_commit, cost_per_unit]
+          note: 单机资本支出极高，稼动率直接决定先进制程单位成本
+        provenance:
+          source_type: web
+          ref: "https://www.asml.com/en/technology/lithography-principles/euv-lithography"
+          confidence: medium
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/16-anomalies.yaml
+      item:
+        id: fab.anomaly.stochastic_defect
+        type: Anomaly
+        name_zh: 随机性缺陷
+        name_en: Stochastic Defect
+        domain: fab
+        severity: high
+        description: >
+          EUV 制程中因光子散粒噪声与光阻分子随机性导致的图形缺陷
+          （断线、桥连、孔洞缺失）。特征是无法通过参数中心值调整消除，
+          只能以提高剂量换取降低随机性——即产能与良率的直接对冲，
+          这与 DUV 时代"调参消除偏移"的处置逻辑根本不同。
+        metrics: [fab.metric.cd_uniformity, fab.metric.defect_density]
+        economic_hooks:
+          affects: [yield, throughput, cost_per_unit]
+          note: 剂量与产能反向权衡，是先进制程独有的良率-产出对冲关系
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+  relations:
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.param.exposure_dose
+        type: may_cause
+        to: fab.anomaly.stochastic_defect
+        note: 剂量不足加剧散粒噪声效应，但提高剂量压低产出
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.stochastic_defect
+        type: detected_at
+        to: fab.process.defect_scan
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.stochastic_defect
+        type: refines
+        to: core.anomaly.quality_excursion
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: high
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+  kb_cases:
+    - target_file: kb/fab/photo-etch-cases.yaml
+      item:
+        id: kb.fab.stochastic_defect_triage
+        domain: fab
+        title: EUV 随机性缺陷排查与处置
+        anomaly_ref: fab.anomaly.stochastic_defect
+        detected_at_ref: fab.process.defect_scan
+        severity: high
+        symptoms:
+          - 缺陷率整体偏高但无空间规律，参数调整无明显改善
+          - 缺陷类型为断线、桥连、孔洞缺失混合出现
+          - 同配方不同批次间缺陷率波动大
+        possible_causes:
+          - cause_ref: fab.param.exposure_dose
+            likelihood: high
+            discriminator: >
+              提高剂量后缺陷率下降但产出同步下降。若存在这种反向关系，
+              即为随机性主导，与确定性偏移的区别在于后者调参可同时改善两者。
+        detection:
+          - metric_ref: fab.metric.defect_density
+            signal: 缺陷分布随机无签名，这本身就是与设备/环境型异常的判别依据
+        actions:
+          - action_ref: fab.action.recipe_adjust
+            order: 1
+            condition: >
+              提高剂量以抑制随机性，但须同步评估产出损失。
+              这是权衡决策而非修复动作，需经营层面确认取舍点。
+          - action_ref: fab.action.expand_sampling
+            order: 2
+            condition: 随机性缺陷需更大样本量才能可靠估计缺陷率
+        impact:
+          blocked_processes: [fab.process.dry_etch]
+          economic: >
+            无法消除，只能在良率与产能之间选择工作点。
+            这类异常的处置本质是经营决策，属第三层经营模型的典型输入。
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-26"
+          reviewed_by: null
+
+modifications: []
+
+deletions: []

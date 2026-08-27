@@ -1,0 +1,126 @@
+# ap 层 · 风险图谱 + 前后段交接
+default_provenance:
+  source_type: model_prior
+  ref: null
+  confidence: medium
+  created_at: "2026-08-26"
+  reviewed_by: null
+
+relations:
+  # ---- 前后段交接：CP 完成即进后段收片 ----
+  - from: fab.process.cp_test
+    type: precedes
+    to: ap.process.wafer_receive
+    note: 前段 CP 良率与 Wafer Map 是后段投料量与分选策略的输入
+    provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}
+
+  # ---- 金线不粘 NSOP ----
+  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.wire_nsop, note: 焊垫污染阻碍金属间化合物形成}
+  - {from: ap.cause.capillary_wear,    type: may_cause, to: ap.anomaly.wire_nsop, note: 集中于特定机台特定线位}
+  - {from: ap.cause.bond_param_drift,  type: may_cause, to: ap.anomaly.wire_nsop}
+  - {from: ap.cause.epoxy_bleed,       type: may_cause, to: ap.anomaly.wire_nsop, note: 跨工序传导：装片溢胶致键合不良}
+  - {from: ap.param.bond_power,        type: may_cause, to: ap.anomaly.wire_nsop, note: 功率不足为最常见直接原因}
+  - {from: ap.param.bond_stage_temp,   type: may_cause, to: ap.anomaly.wire_nsop}
+  - {from: ap.anomaly.wire_nsop,       type: detected_at, to: ap.process.wire_bond, note: 拉力抽测与机台不粘报警}
+  - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.plasma_clean_rerun}
+  - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.replace_capillary}
+  - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.bond_param_doe}
+  - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.adjust_dispense, note: 针对溢胶型}
+  - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.wire_nsop,       type: blocks, to: ap.process.molding, note: 塑封后不可返工，须在此前判定}
+
+  # ---- 塑封空洞 ----
+  - {from: ap.cause.emc_moisture,   type: may_cause, to: ap.anomaly.mold_void}
+  - {from: ap.param.transfer_speed, type: may_cause, to: ap.anomaly.mold_void, note: 过快卷入气体}
+  - {from: ap.param.mold_pressure,  type: may_cause, to: ap.anomaly.mold_void, note: 压力不足排气不净}
+  - {from: ap.param.mold_temp,      type: may_cause, to: ap.anomaly.mold_void, note: 温度偏低黏度高}
+  - {from: ap.anomaly.mold_void,    type: detected_at, to: ap.process.aoi, note: X-Ray/超声抽检，AOI 段拦截}
+  - {from: ap.anomaly.mold_void,    type: mitigated_by, to: ap.action.bake_emc}
+  - {from: ap.anomaly.mold_void,    type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.mold_void,    type: blocks, to: ap.process.packing}
+
+  # ---- 芯粒裂纹 ----
+  - {from: ap.cause.grind_wheel_clog,   type: may_cause, to: ap.anomaly.die_crack, note: 亚表面微裂纹为起点}
+  - {from: ap.cause.blade_wear,         type: may_cause, to: ap.anomaly.die_crack, note: 崩边扩展为裂纹}
+  - {from: ap.param.grind_feed_rate,    type: may_cause, to: ap.anomaly.die_crack}
+  - {from: ap.param.die_bond_force,     type: may_cause, to: ap.anomaly.die_crack, note: 装片压力压裂薄芯粒}
+  - {from: ap.anomaly.dicing_chipping,  type: may_cause, to: ap.anomaly.die_crack, note: 异常级联：崩边是裂纹起始源}
+  - {from: ap.anomaly.die_crack,        type: detected_at, to: ap.process.aoi}
+  - {from: ap.anomaly.die_crack,        type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.die_crack,        type: mitigated_by, to: ap.action.replace_blade}
+  - {from: ap.anomaly.die_crack,        type: blocks, to: ap.process.packing}
+
+  # ---- 界面分层 ----
+  - {from: ap.cause.emc_moisture,      type: may_cause, to: ap.anomaly.delamination}
+  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.delamination, note: 界面污染降低附着力}
+  - {from: ap.param.cure_temp,         type: may_cause, to: ap.anomaly.delamination, note: 固化不足致交联度不够}
+  - {from: ap.anomaly.delamination,    type: detected_at, to: ap.process.aoi, note: C-SAM 超声扫描}
+  - {from: ap.anomaly.delamination,    type: mitigated_by, to: ap.action.bake_emc}
+  - {from: ap.anomaly.delamination,    type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.delamination,    type: blocks, to: ap.process.packing}
+
+  # ---- 切割崩边 ----
+  - {from: ap.cause.blade_wear,        type: may_cause, to: ap.anomaly.dicing_chipping}
+  - {from: ap.param.cut_feed_speed,    type: may_cause, to: ap.anomaly.dicing_chipping}
+  - {from: ap.param.blade_rpm,         type: may_cause, to: ap.anomaly.dicing_chipping}
+  - {from: ap.anomaly.dicing_chipping, type: detected_at, to: ap.process.dicing, note: 切割后崩边量测}
+  - {from: ap.anomaly.dicing_chipping, type: mitigated_by, to: ap.action.replace_blade}
+  - {from: ap.anomaly.dicing_chipping, type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.dicing_chipping, type: blocks, to: ap.process.die_attach}
+
+  # ---- 缺球/连球 ----
+  - {from: ap.cause.reflow_profile_drift, type: may_cause, to: ap.anomaly.missing_ball}
+  - {from: ap.param.reflow_peak_temp,     type: may_cause, to: ap.anomaly.missing_ball}
+  - {from: ap.anomaly.missing_ball,       type: detected_at, to: ap.process.aoi}
+  - {from: ap.anomaly.missing_ball,       type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.missing_ball,       type: blocks, to: ap.process.packing}
+
+  # ---- 终测良率下滑 ----
+  - {from: ap.cause.probe_card_wear,   type: may_cause, to: ap.anomaly.ft_yield_drop, note: 伪失效，重测通过率高}
+  - {from: ap.anomaly.wire_nsop,       type: may_cause, to: ap.anomaly.ft_yield_drop, note: 异常级联：键合不良在终测暴露为开路}
+  - {from: ap.anomaly.delamination,    type: may_cause, to: ap.anomaly.ft_yield_drop}
+  - {from: ap.anomaly.die_crack,       type: may_cause, to: ap.anomaly.ft_yield_drop}
+  - {from: ap.param.test_time,         type: may_cause, to: ap.anomaly.ft_yield_drop, note: 缩测过度致覆盖不足或误判}
+  - {from: ap.anomaly.ft_yield_drop,   type: detected_at, to: ap.process.final_test}
+  - {from: ap.anomaly.ft_yield_drop,   type: mitigated_by, to: ap.action.replace_probe_card}
+  - {from: ap.anomaly.ft_yield_drop,   type: mitigated_by, to: ap.action.retest, note: 须先确认治具已恢复}
+  - {from: ap.anomaly.ft_yield_drop,   type: mitigated_by, to: ap.action.hold_lot}
+  - {from: ap.anomaly.ft_yield_drop,   type: blocks, to: ap.process.packing}
+
+  # ---- 键合机停机 → WIP 堆积 ----
+  - {from: ap.cause.fixture_shortage, type: may_cause, to: ap.anomaly.bonder_down, note: 机台可用但无治具，属非设备型停摆}
+  - {from: ap.cause.fixture_shortage, type: may_cause, to: core.anomaly.wip_bubble, note: 后段易被忽略的堆积成因}
+  - {from: ap.anomaly.bonder_down,    type: may_cause, to: core.anomaly.wip_bubble}
+  - {from: ap.anomaly.bonder_down,    type: detected_at, to: ap.process.wire_bond}
+  - {from: ap.anomaly.bonder_down,    type: mitigated_by, to: ap.action.reallocate_fixture}
+  - {from: ap.anomaly.bonder_down,    type: blocks, to: ap.process.wire_bond}
+  - {from: ap.anomaly.bonder_down,    type: blocks, to: ap.route.qfn_wirebond_main}
+
+  # ---- refines：ap 概念归入 core 骨架 ----
+  - {from: ap.anomaly.bonder_down,   type: refines, to: core.anomaly.equipment_down, provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}}
+  - {from: ap.anomaly.ft_yield_drop, type: refines, to: core.anomaly.quality_excursion, provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}}
+  - {from: ap.metric.ft_yield,       type: refines, to: core.metric.yield}
+  - {from: ap.material.mold_compound, type: refines, to: core.material.lot, note: 塑封料以批号管理，共享批次追溯骨架, confidence: low}
+
+  # ---- analogous_to：跨行业类比 ----
+  - from: ap.process.burn_in
+    type: analogous_to
+    to: ext.process.stress_screening
+    note: >
+      烧机 ↔ 通用加速老化筛选。共性：以加速应力换取早期失效暴露、
+      Arrhenius 型等效时长折算、容量决定通过能力。折算模型可复用。
+    provenance: {source_type: analogy, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}
+
+  - from: ap.material.mold_compound
+    type: analogous_to
+    to: ext.material.perishable_input
+    note: >
+      塑封料 ↔ 有时效性投入品。共性：开封后时效管理、储存条件敏感、
+      超期报废与状态恢复(返烤)的成本权衡。时效管理逻辑同构。
+    provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-26", reviewed_by: null}
+
+  - from: ap.stage.test
+    type: analogous_to
+    to: ext.stage.grading_sorting
+    note: 测试分级 ↔ 分选定级。共性：按指标分 Bin、不同等级对应不同售价、过杀与漏出的判定阈值权衡
+    provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-26", reviewed_by: null}

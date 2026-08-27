@@ -1,0 +1,147 @@
+# 知识库实例 · 后段键合与 WIP 类异常处置
+default_provenance:
+  source_type: model_prior
+  ref: null
+  confidence: medium
+  created_at: "2026-08-26"
+  reviewed_by: null
+
+cases:
+  - id: kb.ap.wire_bond_wip_bubble
+    domain: ap
+    title: Wire Bond 站点 WIP 堆积排查与处置
+    anomaly_ref: core.anomaly.wip_bubble
+    detected_at_ref: ap.process.wire_bond
+    severity: high
+    symptoms:
+      - 键合站在制量显著高于正常水位，队列批次数持续增长
+      - 下游塑封站出现断料饥饿
+      - 该站 CT 贡献占比上升，X-Factor 恶化
+    possible_causes:
+      - cause_ref: ap.anomaly.bonder_down
+        likelihood: high
+        discriminator: >
+          查该站可用机台数与 E10 状态分布。若 Unscheduled Down 台数上升，
+          即为设备型。键合站机台数多，需看的是"可用台数占比"而非单机状态——
+          单台停机通常不足以形成堆积。
+      - cause_ref: ap.cause.fixture_shortage
+        likelihood: high
+        discriminator: >
+          机台状态显示 Standby（待料/待治具）而非 Down，且该产品别的治具或
+          载具在线数量不足。这是后段最容易被漏查的成因——设备报表看起来正常，
+          产能却锁死。判别关键在于区分 Standby 与 Down。
+      - cause_ref: ap.anomaly.wire_nsop
+        likelihood: medium
+        discriminator: >
+          堆积批次中 Hold 状态占比高，且 Hold 原因为键合品质。
+          此时堆积是品质异常的后果而非产能问题，处置方向完全不同——
+          应先解决品质判定，加派机台无效。
+      - cause_ref: ap.process.wafer_receive
+        likelihood: medium
+        discriminator: >
+          回溯前 1~2 周收片量曲线。若出现投料脉冲（如前段集中交付），
+          堆积会沿流程逐站传导，键合站只是显现位置而非根源。
+          特征是上游各站 WIP 也依次偏高。
+      - cause_ref: core.state.hold
+        likelihood: low
+        discriminator: 堆积批次长期未流动且 Hold 未解除，属流程管理问题而非产能问题
+    detection:
+      - metric_ref: core.metric.wip
+        signal: >
+          按站点分层的 WIP 水位与历史基线对比；同时看上下游站点分布形态，
+          判断是本站产生还是上游传导。
+      - metric_ref: core.metric.oee
+        signal: 该站 OEE 与 E10 状态分解，用于区分设备型(Down)与待料型(Standby)
+      - metric_ref: core.metric.cycle_time
+        signal: 该站 CT 贡献占比变化，量化堆积的交期影响
+    actions:
+      - action_ref: ap.action.reallocate_fixture
+        order: 1
+        condition: >
+          确认为治具短缺或个别机台故障后执行。跨产品调配治具是最快见效的手段，
+          但需评估换线损失；长期需补充治具投资，否则问题会反复。
+      - action_ref: ap.action.hold_lot
+        order: 2
+        condition: >
+          仅当堆积伴随品质异常时使用（防止不良批次继续流入不可逆的塑封工序）。
+          纯产能型堆积不应扣留，否则加剧滞留。
+      - action_ref: ap.action.bond_param_doe
+        order: 3
+        condition: >
+          若堆积源于键合不良导致的反复重工，须从工艺窗口根治。
+          此时表面是产能问题，实质是良率问题。
+    impact:
+      blocked_processes: [ap.process.molding]
+      economic: >
+        键合站常为后段瓶颈，其堆积同时造成交期延长（前段等待）与
+        下游稼动损失（塑封饥饿）。按 Little's Law，WIP 上升而产出率不变时
+        CT 等比恶化。若为治具短缺型，治具投资的回收周期通常远短于产能损失。
+    tags: [WIP, 键合, 瓶颈, 排查]
+    notes: >
+      排查顺序建议：先分清"设备不可用"与"设备可用但无工可开"，
+      再判断是本站产生还是上游传导，最后确认是否为品质异常伪装成的产能问题。
+      这三个判别做完，成因基本已锁定。
+
+  - id: kb.ap.wire_nsop_triage
+    domain: ap
+    title: 金线不粘 NSOP 排查与处置
+    anomaly_ref: ap.anomaly.wire_nsop
+    detected_at_ref: ap.process.wire_bond
+    severity: high
+    symptoms:
+      - 机台不粘报警频次上升
+      - 拉力测试值偏低，失效模式为球脱而非线断
+      - 目检可见焊球未完全接合或有位移
+    possible_causes:
+      - cause_ref: ap.cause.capillary_wear
+        likelihood: high
+        discriminator: >
+          不良集中于特定机台特定线位，且随该瓷嘴键合次数累积恶化。
+          换瓷嘴后立即恢复即确认。这是最常见也最容易验证的成因。
+      - cause_ref: ap.cause.epoxy_bleed
+        likelihood: high
+        discriminator: >
+          目检焊垫可见胶体残留，且不良与特定装片机台关联。
+          属跨工序传导——键合站是显现位置，责任在装片站，
+          单纯调键合参数只会掩盖问题。
+      - cause_ref: ap.cause.pad_contamination
+        likelihood: medium
+        discriminator: >
+          全线跨机台同步出现，且追加等离子清洁后显著改善。
+          若污染源在前段（钝化层残留），需与晶圆厂协同，
+          判别方法是比对不同前段批号的不良率差异。
+      - cause_ref: ap.param.bond_power
+        likelihood: medium
+        discriminator: 与线材批号切换时点重合，需重建工艺窗口而非微调
+      - cause_ref: ap.cause.bond_param_drift
+        likelihood: medium
+        discriminator: 同机台所有线位缓慢恶化，查换能器效率与加热台温度校验记录
+    detection:
+      - metric_ref: ap.metric.wire_pull_strength
+        signal: 拉力值下降，且失效模式分布向"球脱"偏移（失效模式比数值更有指向性）
+      - metric_ref: ap.metric.ball_shear_strength
+        signal: 球剪切强度下降指向球焊界面金属间化合物形成不足
+    actions:
+      - action_ref: ap.action.plasma_clean_rerun
+        order: 1
+        condition: 疑似焊垫污染时首选，成本低见效快，可作为快速验证手段
+      - action_ref: ap.action.replace_capillary
+        order: 1
+        condition: 确认瓷嘴磨损后立即更换，换后跑首件拉力确认
+      - action_ref: ap.action.adjust_dispense
+        order: 2
+        condition: 确认为装片溢胶后回到装片站调整，键合站参数不应为此让步
+      - action_ref: ap.action.bond_param_doe
+        order: 3
+        condition: >
+          线材批号切换或持续性不粘时执行。见效慢但根治，
+          避免以补偿参数掩盖根因导致隐患累积。
+      - action_ref: ap.action.hold_lot
+        order: 4
+        condition: 塑封前必须完成判定——塑封后不粘不可返工，只能判废
+    impact:
+      blocked_processes: [ap.process.molding]
+      economic: >
+        塑封前检出可重新键合挽回，损失限于键合工时；塑封后暴露则整颗判废，
+        且可能在终测才发现（表现为开路）。molding 是本异常的经济分界点。
+    tags: [键合, NSOP, 排查]
