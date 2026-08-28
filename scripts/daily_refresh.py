@@ -4,20 +4,27 @@
     python scripts/daily_refresh.py --dry-run      # 只跑到生成提案，不落库
     python scripts/daily_refresh.py --skip-agent   # 不调 agent，只落已有 pending 提案
 
-七段流水线，任一段失败就整次回滚到开跑前的提交：
+流水线，任一段失败就整次回滚到开跑前的提交：
 
-  1. 前置检查   工作区干净、脚本齐、基线校验通过、基线回归通过
+  1. 前置检查   工作区干净、脚本齐、基线自己就通过（kb.py check --quick）
   2. 快照      记下开跑前的 commit，这是回滚点
   3. 生成      调 claude CLI 无头跑 prompts/kb-refresh.md，产出 changesets/pending/*.yaml
-  3b. 闸门     precheck.py 对提案跑确定性检查，ERROR 则不进落库（约 2 秒，未合并故不回滚）
+  3b. 闸门     precheck.py 查提案形状，ERROR 则不进落库（未合并故不回滚）
   4. 落库      apply_changeset.py 按 config.review 自动合并（它自带原子回滚）
   5. 护栏      净增实体数与增长比例不超 config.review.guards 的上限
-  6. 验证      validate.py + build_index.py + regress.py 双份夹具
+  6. 验证      kb.py check 全链
   7. 提交      全过则 git commit；任一段失败则 git reset --hard 回到第 2 段的点
+
+第 1 段与第 6 段都委托给 kb.py check，不在本文件里重排 validate/build_index/
+regress 的顺序。顺序只在一处定义，手动跑和无人值守跑同一条链。
 
 为什么护栏放在这一层而不是 apply_changeset：
 后者只看单个提案合不合规，看不到"今天已经加了多少"。跑飞的形态不是某一条
 写错，是连着几天每天加 40 条没人看，两周后库里一半内容没人认得。
+
+回滚的已知边界：reset --hard 收不回未跟踪文件（实测确认）。新建在 ontology/
+下的文件回滚后仍在库里，靠下一轮前置检查的 require_git_clean 拦住，
+不会静默累积但需要人处置。详见 rollback() 的说明。
 
 退出码：0 成功（含"无事可做"）| 1 失败已回滚 | 2 前置检查未过（未做任何改动）
 """
@@ -65,8 +72,12 @@ def counts() -> dict[str, int]:
 
 # ---------- 1. 前置检查 ----------
 
-def precheck(guards: dict, skip_agent: bool) -> str | None:
-    """返回 None 表示通过，否则返回失败原因。"""
+def preflight(guards: dict, skip_agent: bool) -> str | None:
+    """开跑前的环境与基线检查。返回 None 表示通过，否则返回失败原因。
+
+    名字刻意不叫 precheck：scripts/precheck.py 查的是提案形状，
+    本函数查的是"这台机器现在能不能开跑"。两件事同名会让人以为是同一层。
+    """
     r = run([*GIT, "rev-parse", "--is-inside-work-tree"])
     if r.returncode != 0:
         return ("semi-kb 不是 git 仓库。无人值守必须有回滚线——"
@@ -85,20 +96,22 @@ def precheck(guards: dict, skip_agent: bool) -> str | None:
                     "\n    ".join(dirty[:5]) +
                     "\n  先提交或撤销。自动化不该在别人没存盘的工作上叠改动。")
 
-    for s in ("validate.py", "build_index.py", "regress.py", "apply_changeset.py",
-              "ask.py", "precheck.py"):
+    for s in ("kb.py", "validate.py", "build_index.py", "regress.py",
+              "apply_changeset.py", "ask.py", "precheck.py"):
         if not (C.ROOT / "scripts" / s).is_file():
             return f"缺少 scripts/{s}"
     if not list((C.ROOT / "tests").glob("questions-*.txt")):
         return "tests/ 下没有问题夹具，回归守门形同虚设"
 
-    r = py("validate.py", "--quiet")
+    # 基线必须自己就是干净的。在坏库上做自动扩充，事后分不清问题是本来就有
+    # 还是这次加进去的——而分不清就意味着不敢回滚也不敢保留。
+    # 用 --quick 跳过 build_index：此刻只需知道基线好不好，不需要重建索引，
+    # 重建留给合并之后那次。
+    r = py("kb.py", "check", "--quick", timeout=1800)
     if r.returncode != 0:
-        return f"基线校验就没过，先修库再谈自动扩充：\n{r.stdout.strip()[-500:]}"
-
-    r = py("regress.py", timeout=1800)
-    if r.returncode != 0:
-        return f"基线回归就没过，先修再谈自动扩充：\n{r.stdout.strip()[-800:]}"
+        return ("基线自己就没过，先修库再谈自动扩充：\n"
+                + "\n".join("    " + l for l in
+                            r.stdout.strip().splitlines()[-10:]))
 
     if not skip_agent and not (C.ROOT / "prompts" / "kb-refresh.md").is_file():
         return "缺少 prompts/kb-refresh.md，agent 没有可执行的流程"
@@ -207,20 +220,26 @@ def gate_pending() -> str | None:
 # ---------- 6. 验证 ----------
 
 def verify() -> str | None:
-    r = py("validate.py")
-    log(r.stdout.strip()[-400:])
-    if r.returncode != 0:
-        return "合并后校验失败"
+    """合并后的整体验证。委托给 kb.py check，不自己编排。
 
-    r = py("build_index.py")
-    if r.returncode != 0:
-        return f"构建索引失败：{r.stdout.strip()[-300:]}"
-    log(r.stdout.strip()[-200:])
+    这里曾经手写 validate -> build_index -> regress 三步。委托出去有两个理由：
 
-    r = py("regress.py", timeout=1800)
-    log(r.stdout.strip()[-600:])
+    顺序只在一处定义。validate 必须在 build_index 之前（反了就是拿旧索引校验
+    新本体，不报错但结论过期），这个约束原先同时写在本函数和 kb.py 里，
+    改一处忘一处就会不一致。
+
+    手动跑和无人值守跑同一条链，不会再出现"手动查得过、定时任务查不过"
+    这种只能靠读代码解释的差异。
+
+    apply_changeset.py 内部已经跑过一次 validate + build_index（它的合并是
+    原子的：追加后立即校验、失败即回滚）。这里再跑一遍不多余——apply 保证的是
+    "合并本身没把库弄坏"，而这里要确认的是全库最终状态：build/ 与本体一致、
+    问题夹具仍然全通。两者的判定范围不同。
+    """
+    r = py("kb.py", "check", timeout=1800)
+    log(r.stdout.strip()[-900:])
     if r.returncode != 0:
-        return "问题夹具回归失败"
+        return "合并后全链验证失败（validate / build_index / regress 之一）"
     return None
 
 
@@ -235,11 +254,23 @@ def rollback(point: str, why: str) -> None:
 
     刻意不碰 changesets/：提案是数据，可能是人手工放进去的，
     合并失败时更需要留着看为什么失败。`git clean -fd -- changesets` 会把它删掉。
-    也刻意不 clean 未跟踪文件：新建的实体文件如果没进索引，留着比删掉安全，
-    下次跑前置检查会因为工作区不干净而拦住，那时人能看到它。
+    也刻意不 clean 未跟踪文件：新建的实体文件如果没进索引，留着比删掉安全。
+
+    要清楚这个选择的代价，它不是无害的：**reset --hard 收不回未跟踪文件**。
+    实测确认过——新建一个 ontology/ 下的文件后 reset，实体数仍是 241 而非 240，
+    该文件还在，仍会被 validate 与 build_index 读到。所以"回滚完成"不等于
+    "库回到了开跑前的状态"。
+
+    兜底靠的是下一次前置检查：未跟踪的 ontology/ 文件会让 require_git_clean
+    拦住整轮（已实测 git status 能看到它、dirty 过滤不会漏）。也就是说
+    污染不会静默累积，但会挡住下一次自动运行，需要人来处置。
+    这是有意的取舍：留证据 + 挡下一轮，好过悄悄删掉一份可能有价值的产出。
     """
     log(f"!! {why}")
-    log(f"回滚已跟踪文件到 {point[:8]}（changesets/ 与未跟踪文件保留）")
+    log(f"回滚已跟踪文件到 {point[:8]}")
+    log("注意：未跟踪文件与 changesets/ 保留，reset --hard 收不回它们——"
+        "若下面列出了 ontology/ 或 kb/ 下的文件，库并未真正回到开跑前状态，"
+        "需人工处置，否则下一轮前置检查会被拦住。")
     run([*GIT, "reset", "--hard", point])
     r = run([*GIT, "status", "--porcelain"])
     left = [l for l in r.stdout.strip().splitlines() if l.startswith("??")]
@@ -278,7 +309,7 @@ def main() -> int:
     log("=" * 60)
     log(f"每日自动扩充开跑  dry_run={a.dry_run} skip_agent={a.skip_agent}")
 
-    why = precheck(guards, a.skip_agent)
+    why = preflight(guards, a.skip_agent)
     if why:
         log(f"!! 前置检查未过：{why}")
         log("未做任何改动。")
