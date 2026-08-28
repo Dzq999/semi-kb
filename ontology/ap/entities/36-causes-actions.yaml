@@ -302,3 +302,45 @@ entities:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - id: ap.cause.placement_fixture_clog
+    type: Cause
+    name_zh: 植球治具孔位堵塞
+    name_en: Ball Placement Fixture Aperture Clogging
+    domain: ap
+    description: '植球治具/掩膜孔位被助焊剂残渣、错位或卡滞的锡球、或治具内壁积累物 堵塞，导致锡球无法落位而出现缺球。判别要点：缺球位置与治具孔位呈 固定一一对应（同一孔位反复缺、且批次间位置不漂移），而非跟印刷版面
+      或炉内温区走。堵塞通常随使用次数累积渐进恶化，清洁或更换治具后 立即恢复。与助焊剂印刷不良的关键区分：前者是*涂布环节*涂得对不对， 本成因是*植球环节*孔位通不通——两者都作用于植球前，但失效部位与
+      处置手段不同，不能合并。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      note: 治具清洁是计划性维护，纠正成本低于返工，堵塞率与清洁周期的权衡属耗材/维护决策
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: ap.action.clean_placement_fixture
+    type: Action
+    name_zh: 清洁/更换植球治具
+    name_en: Clean or Replace Ball Placement Fixture
+    domain: ap
+    description: '对植球治具/掩膜孔位做清洁除残渣，或用清洁替代件换上、对换下件排程 深度清洁。换后须跑首件确认缺球消失。与 reball_rework 不同：本动作 作用于治具（生产工具），纠正的是缺球的上游成因；reball_rework
+      作用于 已缺球的成品，是产品级返工。两者一因一果，处置对象不同。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      - equipment_oee
+      note: 按堵塞累积频率排程清洁，把非计划停机换成可控维护，同时从源头压低缺球率
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

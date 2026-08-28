@@ -212,3 +212,23 @@ relations:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - from: ap.cause.placement_fixture_clog
+    type: may_cause
+    to: ap.anomaly.missing_ball
+    note: 孔位堵塞致锡球无法落位；缺球位置与孔位固定对应，批次间不漂移
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.anomaly.missing_ball
+    type: mitigated_by
+    to: ap.action.clean_placement_fixture
+    note: 针对治具孔位堵塞这一成因分支，清洁后可治本；产品级返工仍需 reball_rework
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

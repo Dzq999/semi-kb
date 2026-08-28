@@ -1,0 +1,68 @@
+changeset: 20260828-ball-placement-fixture.yaml
+# 自审。审核方与生成方是同一上下文，如实标出——假装独立审过比自审更糟。
+# 网络工具本环境不可用（WebSearch/playwright 未授权），无法取到可验证的真实
+# URL，故本轮来源一律如实标 model_prior / medium，不伪装成 web 引用。
+# 选题依据从 build/index.json / graph.json 与本体描述重算，未复用对话中的旧数字。
+verifier: self:kb-refresh
+verified_at: "2026-08-28"
+items:
+  - key: "ap.cause.placement_fixture_clog"
+    section: entities
+    verdict: pass
+    reason: >-
+      选题锚点：ap.anomaly.missing_ball 的 description 把'助焊剂涂布不均、植球
+      治具孔位堵塞、回流曲线失当'并列为主因，但图上只有 flux_print_defect
+      （印刷侧）与 reflow_profile_drift / reflow_peak_temp（回流侧），治具侧
+      无成因节点。上轮 missing-ball 的 verdict 明确把治具侧列为刻意的遗留，
+      本轮补的就是这个缺口。
+      与既有 cause 逐条复核不重复：flux_print_defect 管的是*涂布环节*助焊剂
+      涂得够不够、会不会渗出（物性+印刷条件），本成因管的是*植球环节*治具
+      孔位通不通（机械堵塞）——失效部位与处置手段都不同，description 里已写明
+      这一区分，避免两者被混为一谈。reflow_profile_drift / reflow_peak_temp
+      属回流侧，与植球前环节不同。其余 ap cause（pad_contamination、capillary_wear、
+      fixture_shortage 等）——fixture_shortage 是"治具数量不足"（产能面），
+      本条是"治具孔位堵塞"（质量面），方向不同。无重复。
+      标 model_prior / medium 正确：植球治具孔位被残渣或卡球堵塞致缺球属封装
+      常规模块知识，本环境取不到可验证的 web 来源，如实不伪装。
+      未写任何标准号或量化阈值，precheck 的 CITE_PAT lint 不应命中。
+      economic_hooks.affects 取 [yield, rework_rate]，均在 allowed 集合内。
+      ID 中段 cause 与 type Cause 一致，domain ap 与前缀一致，provenance 完整。
+
+  - key: "ap.action.clean_placement_fixture"
+    section: entities
+    verdict: pass
+    reason: >-
+      逐类比对既有 ap action 确认不重复：reball_rework 作用于缺球成品（产品级
+      返工），本条作用于治具（生产工具、纠正上游成因）——一因一果，处置对象
+      不同，description 里已写明。replace_capillary / replace_blade / replace_probe_card
+      管的是瓷嘴、切割刀、测试治具，本条是植球治具。plasma_clean_rerun / bake_emc
+      作用于物料/产品不作用于治具。adjust_dispense 管的是点胶环节。无重复。
+      指向 missing_ball 的 mitigated_by 边是本条存在的意义：堵住"图上回溯处置
+      只能得到 hold_lot / reball_rework"的空白，把实体 economic_hooks 里
+      '缺球返工成本低'以外的上游成因处置补上。
+      标 model_prior / medium 如实；affects [yield, rework_rate, equipment_oee]
+      均合法；无标准号/阈值，CITE_PAT 不应命中；ID 中段 action 与 type Action、
+      domain ap 均一致。
+
+  - key: "ap.cause.placement_fixture_clog|may_cause|ap.anomaly.missing_ball"
+    section: relations
+    verdict: pass
+    reason: >-
+      may_cause 语义成立：治具孔位堵塞直接使锡球无法落位而缺球，是异常发生的
+      因，不是影响持续时长的因素——description 与 note 无 MTTR 类措辞，
+      precheck 的 MTTR lint 不应命中。端点类型合法：from 端 Cause 在 may_cause
+      的 from 允许集内，to 端 ap.anomaly.missing_ball 是 Anomaly，在 to 允许集内。
+      note 给出的判别信号'缺球位置与孔位固定对应、批次间不漂移'是独立的
+      现场可观测依据，与 flux 印刷（跟版面走）、回流（跟温区走）区分开。
+      model_prior / medium 如实。
+
+  - key: "ap.anomaly.missing_ball|mitigated_by|ap.action.clean_placement_fixture"
+    section: relations
+    verdict: pass
+    reason: >-
+      方向与语义正确：异常由动作处置。此边补上后，missing_ball 的 mitigated_by
+      不再只有产品级动作（hold_lot / reball_rework），溯源到成因时有了治具侧
+      的处置出口——与新的 may_cause 边配套。note 限定'针对治具孔位堵塞这一成因
+      分支'，避免被读成对所有缺球都适用，同时点明产品级返工仍需 reball_rework，
+      两条动作职责不冲突。端点类型合法（Anomaly->Action）。
+      model_prior / medium 如实。
