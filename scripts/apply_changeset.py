@@ -1,6 +1,6 @@
 """变更提案的审核与合并。
 
-自动更新链路的落地环节：kb-refresh 产出提案 -> subAgent 独立复核并写 verdict
+自动更新链路的落地环节：kb-refresh 产出提案 -> 审核并写 verdict
 -> 本脚本读 verdict 分级放行 -> 合并后自动跑 validate -> 移入 applied/ 或留 pending/。
 
 链路里没有人工环节。审核责任落在 verdict 文件上，本脚本只消费结论，
@@ -91,10 +91,10 @@ def classify(section: str, item: dict, cfg: dict, override: str | None,
     if guards.get("require_verdict"):
         row = (verdicts or {}).get(item_key(section, item))
         if not row:
-            return False, "subAgent 未对该条目出裁决"
+            return False, "verdict 未覆盖该条目"
         if row.get("verdict") != "pass":
-            return False, f"subAgent 裁定 {row.get('verdict')}：{row.get('reason') or '未说明'}"
-        return True, f"subAgent 通过：{row.get('reason') or '无附注'}"
+            return False, f"裁定 {row.get('verdict')}：{row.get('reason') or '未说明'}"
+        return True, f"审核通过：{row.get('reason') or '无附注'}"
 
     return True, f"符合 auto_apply.{kind} 且可信度 {conf} 达标"
 
