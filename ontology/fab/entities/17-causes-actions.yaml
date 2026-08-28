@@ -180,3 +180,81 @@ entities:
     domain: fab
     description: 异常期间加严量测抽样，缩短检出窗口以限制受影响批次数。
     economic_hooks: {affects: [cycle_time, yield], note: 以量测产能换风险暴露收窄}
+  - id: fab.cause.reticle_stage_error
+    type: Cause
+    name_zh: 光罩台/工件台伺服异常
+    name_en: Reticle & Wafer Stage Servo Error
+    domain: fab
+    description: '双工件台同步扫描依赖纳米级伺服跟随，编码器、气浮或温控偏差会触发 扫描中断报警并锁机。特征是报警集中于扫描动作阶段而非曝光光源侧， 且常伴随特定 slit 位置重复出现。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - throughput
+      - capacity_commit
+      note: 停机时长直接扣减瓶颈机台可用工时，产能承诺随之失守
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.cause.light_source_degradation
+    type: Cause
+    name_zh: 曝光光源功率衰减/熄灭
+    name_en: Light Source Power Degradation
+    domain: fab
+    description: '准分子激光或 EUV 光源功率随累积脉冲衰减，跌破配方所需剂量下限时 曝光被拒或需延长扫描时间。区别于伺服类停机：产出率先缓慢下降， 再转为硬停机，属可预测型劣化。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - throughput
+      - cost_per_unit
+      note: 换管/换模块为计划性支出，提前换损失产能、延后换风险硬停机
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.cause.pm_overdue
+    type: Cause
+    name_zh: 预防保养逾期
+    name_en: Preventive Maintenance Overdue
+    domain: fab
+    description: '瓶颈机台的 PM 常因赶产被推迟，逾期后非计划停机概率显著上升。 判别依据是停机前 PM 计划已超期，而非任何硬件突发信号—— 这类停机本质是排程决策的后果，不是设备故障。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - rework_rate
+      note: 用计划停机换非计划停机，是可主动选择的权衡而非不可控事件
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.action.dispatch_field_service
+    type: Action
+    name_zh: 报修并催派原厂工程师
+    name_en: Dispatch Field Service Engineer
+    domain: fab
+    description: '开设备工单并按合约响应等级升级催派。适用于原厂锁定模块， 厂内自行处理会失去保修或造成二次损伤的情形。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - capacity_commit
+      note: 响应等级在合约签订时就已决定，停机当下无法改变
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

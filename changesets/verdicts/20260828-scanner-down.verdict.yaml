@@ -1,0 +1,127 @@
+changeset: 20260828-scanner-down.yaml
+verifier: subagent:independent-reviewer-r2
+verified_at: "2026-08-28 17:38"
+items:
+  - key: "fab.cause.reticle_stage_error"
+    section: entities
+    verdict: pass
+    reason: >
+      格式合法：模拟加载后 missing=[] unknown=[]，type=Cause 与 ID 中段 slug=cause 一致，
+      domain=fab 与前缀一致，affects [equipment_oee, throughput, capacity_commit] 全在
+      economic_hooks_schema 白名单内。已确认无 equipment 字段（本条是上轮 5 条带 equipment
+      的实体之一），派生展开后新增派生边为 0。
+      provenance=model_prior 判定成立："纳米级伺服跟随"是量级性的定性描述，不是可核对的
+      具体指标断言（未给出跟随误差限值、编码器分辨率或机型规格），与"标准号/设备参数/
+      行业阈值"性质不同；"报警集中于扫描动作阶段而非光源侧""特定 slit 位置重复"属排查
+      经验型判别依据，标 model_prior 正确。若后续要补充具体伺服误差限值，才需厂商文档。
+      查重：全库 12 条 fab.cause.* 全为工艺缺陷型（沾污/温度不均/批号切换/终点检测失效等），
+      无任何伺服或工件台类根因；ap 层亦无等价项。
+  - key: "fab.cause.light_source_degradation"
+    section: entities
+    verdict: pass
+    reason: >
+      格式合法：字段齐全无未知字段，type/slug/domain 一致，affects
+      [equipment_oee, throughput, cost_per_unit] 在白名单内，无 equipment 字段。
+      provenance=model_prior 判定成立：正文只给"功率随累积脉冲衰减、跌破配方剂量下限则
+      曝光被拒或延长扫描时间"这类机理性描述，未出现具体寿命脉冲数、功率阈值或标准号，
+      属定性领域机理而非需引证的外部客观数值。
+      查重：与 fab.cause.lens_contamination 语义不同——后者是光路沾污致像差与固定位置
+      CD 偏移（may_cause 指向 cd_out_of_spec，质量类），本条是光源出力不足致停机
+      （指向 scanner_down，可用性类），两者根因载体与后果链路均不重叠，非重复。
+  - key: "fab.cause.pm_overdue"
+    section: entities
+    verdict: pass
+    reason: >
+      格式合法：字段齐全无未知字段，type/slug/domain 一致，affects [equipment_oee,
+      rework_rate] 在白名单内，无 equipment 字段。
+      重点复核"是否与寿命/劣化到限型根因重叠"，结论是不重叠：
+      chamber_polymer_buildup / pad_end_of_life / target_end_of_life 三条描述的是
+      部件物理状态已劣化到限，其 may_cause 边全部指向质量类异常
+      （particle_excursion / etch_residue / cmp_scratch），处置动作是清洗或换耗材；
+      本条描述的是保养排程依从性这一管理决策状态，指向可用性类异常 scanner_down，
+      判别依据明确写为"PM 计划已超期，而非任何硬件突发信号"。同一台设备可以 PM 逾期
+      而部件寿命尚有余量，反之亦然，两者不是同义不同名。
+      与上轮被撤的 spare_part_shortage 的关键区别也已核对：备件延迟只拉长 MTTR、不改变
+      停机是否发生，故 may_cause 语义不成立；PM 逾期确实抬升非计划停机的发生概率，
+      may_cause 语义成立，不属同类错误。
+      provenance=model_prior 判定成立："逾期后非计划停机概率显著上升"是方向性工程判断，
+      未给出具体概率或倍数，未构成需引证的量化阈值。
+  - key: "fab.action.dispatch_field_service"
+    section: entities
+    verdict: pass
+    reason: >
+      格式合法：字段齐全无未知字段，type=Action 与 slug=action 一致，domain=fab 一致，
+      affects [equipment_oee, capacity_commit] 在白名单内，无 equipment 字段。
+      查重：逐条比对 8 条 fab.action.* 与 10 条 ap.action.*，无任何"报修/派工/原厂
+      工程师"类动作；最接近的 replace_consumable 是厂内换寿命件、chamber_clean 是厂内
+      清洗，均不涉及外部合约响应，非重复。与上轮因重复被撤的 rebalance_dispatch 不同：
+      后者与 skip_ahead 同为"改派机台缓解 WIP"，本条是"升级外部维修资源"，
+      在 scanner_down 的处置集里与 skip_ahead 是互补而非替代（一个缩短 MTTR，
+      一个绕开故障机台维持流动）。
+      provenance=model_prior 判定成立：正文只讲"原厂锁定模块自行处理会失保修或二次损伤"
+      这类工程惯例，未引用任何具体合约响应时限数值。
+  - key: "fab.cause.reticle_stage_error|may_cause|fab.anomaly.scanner_down"
+    section: relations
+    verdict: pass
+    reason: >
+      本轮独立逐条判定（不沿用上轮因端点被拒的连带结论）。端点类型 Cause -> Anomaly，
+      满足 relation_types.may_cause 的 from [Cause, Parameter, Process, Anomaly, State]
+      与 to [Anomaly]，R005 通过。to 端 fab.anomaly.scanner_down 已存在于
+      16-anomalies.yaml，from 端由本提案新增且已判 pass，R004 可解析。
+      may_cause 语义成立：伺服异常直接触发扫描中断报警并锁机，是停机事件本身的成因，
+      不是停机时长的解释项。无未知字段，显式带 provenance（confidence=medium，
+      满足 guards.min_confidence=medium），与 21-risk-graph.yaml 现有 195 条显式关系
+      比对无重复，且 may_cause 不属 derived_relations 覆盖的字段派生类型，手写正确。
+  - key: "fab.cause.light_source_degradation|may_cause|fab.anomaly.scanner_down"
+    section: relations
+    verdict: pass
+    reason: >
+      端点类型 Cause -> Anomaly 合法（R005），两端均可解析（R004），无未知字段，
+      显式 provenance 且 confidence=medium 满足 guard。
+      may_cause 语义成立：光源跌破剂量下限导致曝光被拒直至硬停机，决定停机是否发生。
+      与库内现有边无重复；note"先表现为产出率缓降，再转硬停机"与本条 discriminator
+      一致，不与 reticle_stage_error 那条的判别依据冲突（一突发、一有前兆），
+      两条并存不会让 may_cause 反查产生无法区分的候选。
+  - key: "fab.cause.pm_overdue|may_cause|fab.anomaly.scanner_down"
+    section: relations
+    verdict: pass
+    reason: >
+      端点类型 Cause -> Anomaly 合法（R005），两端可解析（R004），字段无未知项，
+      显式 provenance，confidence=medium 满足 guard，库内无重复边。
+      may_cause 语义单独复核通过：这是上轮 spare_part_shortage 出问题的同一个语义位置，
+      故重点确认——PM 逾期抬升的是停机发生概率（属因果），而非仅拉长修复时间，
+      沿 may_cause 反查 scanner_down 根因时它是合理候选，不会像备件短缺那样混入
+      "读起来是因果、语义上不是因果"的边。
+  - key: "fab.anomaly.scanner_down|mitigated_by|fab.action.dispatch_field_service"
+    section: relations
+    verdict: pass
+    reason: >
+      端点类型 Anomaly -> Action，满足 relation_types.mitigated_by 的 from [Anomaly]
+      与 to [Action]，R005 通过；两端可解析（R004）。无未知字段，显式 provenance，
+      confidence=medium 满足 guard。
+      与已有 scanner_down mitigated_by skip_ahead 不重复：一条是升级外部维修，
+      一条是改派机台，语义正交。方向正确（未写反为 Action -> Anomaly），
+      且 mitigated_by 不在派生关系覆盖范围内，手写在关系文件里符合建模规范。
+  - key: "kb.fab.scanner_down_triage"
+    section: kb_cases
+    verdict: pass
+    reason: >
+      kb_schema 合规：ID 匹配 ^kb\.(fab|ap)\.[a-z0-9_]+$ 且全库 12 条实例内无重复；
+      required_fields 全齐、无 optional 之外的未知字段；provenance 合法。
+      引用完整性逐个解析通过（R014/R015）：anomaly_ref->Anomaly、
+      detected_at_ref fab.process.photo_exposure->Process、4 个 cause_ref 分别解析为
+      Cause（含库内已有的 env_excursion）、3 个 metric_ref core.metric.oee/wip/throughput
+      均->Metric、3 个 action_ref 解析为 Action（dispatch_field_service 为本提案新增，
+      skip_ahead / hold_lot 库内已有）、blocked_processes fab.process.photo_exposure->Process；
+      域自洽满足"仅引用 fab.* 或 core.*"，无 fab↔ap 互引。
+      残留引用专项检查：全部 ref 中没有任何指向已撤销的 spare_part_shortage 或
+      rebalance_dispatch 的项；两者仅以散文形式出现在 rationale 与 notes 的建模取舍
+      说明里，不构成引用。actions 的 order 删掉一条后为 1/2/3 连续且优先级排序合理
+      （先升级维修、再评估改派、最后处理在机批次）。
+      一处观察（不影响本条合规、据实记录）：case 里 env_excursion 作为 possible_cause、
+      hold_lot 作为 action，但图上不存在对应的 env_excursion may_cause scanner_down 与
+      scanner_down mitigated_by hold_lot 两条边。已核对这不是校验约束——validate.py 的
+      R014 只校验 ref 存在性与类型，全库跑出 ERROR 0 / WARN 0，且现有 12 条实例中
+      已有 5 条（含 cd_out_of_spec_triage、etch_residue_triage、wire_bond_wip_bubble 等）
+      存在同类 case 比图更全的情况，属库内既有惯例，故不据此判非 pass；
+      若后续要收紧 case 与图的一致性，应作为独立的全库整理提案处理。

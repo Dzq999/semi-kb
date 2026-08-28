@@ -1,0 +1,239 @@
+# 变更提案 · 光刻机非计划停机处置知识
+changeset:
+  id: 20260828-scanner-down
+  title: 补齐光刻机非计划停机的根因、处置动作与排查 Playbook
+  created_at: "2026-08-28"
+  author: agent:kb-refresh
+  rationale: |
+    补的缺口是"高连通度异常无处置知识"。从 build/index.json 重算：19 个 Anomaly
+    中 13 个有 kb 实例，6 个没有；未覆盖项里 fab.anomaly.scanner_down 度数最高（9），
+    severity critical，风险图谱里 detected_at / blocks / refines / may_cause 都已接好，
+    blocks 直接指向主流程 fab.route.cmos_logic_main，但排查指过来之后没有任何处置内容。
+
+    连带缺口：现有 fab.cause.* 全部是工艺缺陷型根因（沾污、温度不均、批号切换等），
+    没有任何一条描述"设备为什么停机"，因此 scanner_down 在图上只有一条 mitigated_by
+    （skip_ahead），无法支撑"停多久、要不要改道、什么时候升级"这类判断。
+    本提案补 3 条停机根因与 1 条停机专属动作，再用它们支撑 Playbook。
+
+    provenance 说明：本次 WebSearch 未取到可验证的停机根因分类原文（返回结果多为
+    EUV sub-fab、TEL track 案例等旁支主题），按 kb-refresh 规范不编造 URL，
+    全部如实标 model_prior / confidence medium，等后续拿到 SEMI E10 等标准原文再升级。
+
+    第二版（首轮 subAgent 审核 13 条全 reject 后修订），改了三处：
+    1. 删掉 5 条实体上的 equipment 字段。meta-schema 的 derived_relations 规定
+       equipment 按 value -> entity 派生 belongs_to，而 belongs_to 的 to 端只允许
+       [Stage, Process]，指向 Cause/Action 违反 R005。已复核：全库 44 处 equipment
+       字段无一例外都在 Process 上。更要紧的是 validate.py 只校验显式关系，
+       而 build_index 把派生关系一起入图——这批非法边不会报错却会静默写进图。
+       设备关联已由 photo_exposure.equipment 加 detected_at 边表达，无需重复。
+    2. 撤掉 fab.cause.spare_part_shortage 实体与其 may_cause 边，理由见 kb_case 的 notes。
+    3. 撤掉 fab.action.rebalance_dispatch，与已有 fab.action.skip_ahead 重复
+       （原文已含"改派至替代机台或调整工序顺序，用于缓解 WIP 堆积"，
+       且 scanner_down mitigated_by skip_ahead 已存在于 21-risk-graph.yaml）。
+       其"改派需确认套刻补正模型按机台管理"这一有效信息已并入 kb_case 的
+       skip_ahead condition，不另建实体。
+
+additions:
+  entities:
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.reticle_stage_error
+        type: Cause
+        name_zh: 光罩台/工件台伺服异常
+        name_en: Reticle & Wafer Stage Servo Error
+        domain: fab
+        description: >
+          双工件台同步扫描依赖纳米级伺服跟随，编码器、气浮或温控偏差会触发
+          扫描中断报警并锁机。特征是报警集中于扫描动作阶段而非曝光光源侧，
+          且常伴随特定 slit 位置重复出现。
+        economic_hooks:
+          affects: [equipment_oee, throughput, capacity_commit]
+          note: 停机时长直接扣减瓶颈机台可用工时，产能承诺随之失守
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.light_source_degradation
+        type: Cause
+        name_zh: 曝光光源功率衰减/熄灭
+        name_en: Light Source Power Degradation
+        domain: fab
+        description: >
+          准分子激光或 EUV 光源功率随累积脉冲衰减，跌破配方所需剂量下限时
+          曝光被拒或需延长扫描时间。区别于伺服类停机：产出率先缓慢下降，
+          再转为硬停机，属可预测型劣化。
+        economic_hooks:
+          affects: [equipment_oee, throughput, cost_per_unit]
+          note: 换管/换模块为计划性支出，提前换损失产能、延后换风险硬停机
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.pm_overdue
+        type: Cause
+        name_zh: 预防保养逾期
+        name_en: Preventive Maintenance Overdue
+        domain: fab
+        description: >
+          瓶颈机台的 PM 常因赶产被推迟，逾期后非计划停机概率显著上升。
+          判别依据是停机前 PM 计划已超期，而非任何硬件突发信号——
+          这类停机本质是排程决策的后果，不是设备故障。
+        economic_hooks:
+          affects: [equipment_oee, rework_rate]
+          note: 用计划停机换非计划停机，是可主动选择的权衡而非不可控事件
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.action.dispatch_field_service
+        type: Action
+        name_zh: 报修并催派原厂工程师
+        name_en: Dispatch Field Service Engineer
+        domain: fab
+        description: >
+          开设备工单并按合约响应等级升级催派。适用于原厂锁定模块，
+          厂内自行处理会失去保修或造成二次损伤的情形。
+        economic_hooks:
+          affects: [equipment_oee, capacity_commit]
+          note: 响应等级在合约签订时就已决定，停机当下无法改变
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+  relations:
+    # 关系条目必须显式带 provenance：apply_changeset.py 读不到 confidence 时
+    # 默认按 low 处理，会被 guards.min_confidence=medium 拦下。
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.reticle_stage_error
+        type: may_cause
+        to: fab.anomaly.scanner_down
+        note: 报警集中于扫描动作阶段，常在固定 slit 位置重复
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.light_source_degradation
+        type: may_cause
+        to: fab.anomaly.scanner_down
+        note: 先表现为产出率缓降，再转硬停机
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.pm_overdue
+        type: may_cause
+        to: fab.anomaly.scanner_down
+        note: 停机前 PM 已超期，属排程决策后果
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.scanner_down
+        type: mitigated_by
+        to: fab.action.dispatch_field_service
+        note: 原厂锁定模块的唯一合规路径
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+
+  kb_cases:
+    - target_file: kb/fab/defect-equipment-cases.yaml
+      item:
+        id: kb.fab.scanner_down_triage
+        domain: fab
+        title: 光刻机非计划停机排查与处置
+        anomaly_ref: fab.anomaly.scanner_down
+        detected_at_ref: fab.process.photo_exposure
+        severity: critical
+        symptoms:
+          - 机台报警停机，曝光工序在制批次无法继续流动
+          - 光刻区 WIP 在数小时内快速累积，队列长度陡增
+          - OEE 可用率跌落，主流程 CT 同步拉长
+        possible_causes:
+          - cause_ref: fab.cause.reticle_stage_error
+            likelihood: high
+            discriminator: >
+              报警发生在扫描动作阶段而非光源侧，且常在特定 slit 位置或特定
+              扫描方向重复。查伺服跟随误差日志即可与光源类区分。
+          - cause_ref: fab.cause.light_source_degradation
+            likelihood: medium
+            discriminator: >
+              停机前已有产出率缓降或曝光时间延长的趋势——"先慢后停"是光源劣化
+              的签名。伺服类停机是突发的，没有这段前兆。
+          - cause_ref: fab.cause.pm_overdue
+            likelihood: medium
+            discriminator: >
+              查 PM 计划是否已超期。超期则这次停机应归因于排程决策，
+              而不是记成随机设备故障——归因错了，改善方向也会错。
+          - cause_ref: fab.cause.env_excursion
+            likelihood: low
+            discriminator: 温湿度或振动超限时多台设备同时报警；单台停机基本可排除
+        detection:
+          - metric_ref: core.metric.oee
+            signal: >
+              可用率跌落，且要区分计划内 PM 与非计划停机。两者混在同一口径里
+              会让停机改善看起来毫无进展。
+          - metric_ref: core.metric.wip
+            signal: 光刻区队列长度陡升，是停机向下游传导的最早观测量
+          - metric_ref: core.metric.throughput
+            signal: 曝光层产出率缓降可作为光源劣化的前兆信号，早于硬停机
+        actions:
+          - action_ref: fab.action.dispatch_field_service
+            order: 1
+            condition: >
+              判定为原厂锁定模块（工件台、光源）时立即报修并按合约等级升级。
+              厂内自行拆装会失去保修，且伺服系统需原厂重新校准。
+          - action_ref: fab.action.skip_ahead
+            order: 2
+            condition: >
+              预估停机超过一个班次时改派同类机台，需确认套刻补正模型按机台管理，
+              否则改派本身会引入套刻偏移。注意越站分支多数情况下不适用——
+              光刻是路径强制点，只有工艺允许延后且后续站点无时效性约束才可考虑。
+          - action_ref: fab.action.hold_lot
+            order: 3
+            condition: >
+              停机瞬间在机批次可能处于部分曝光状态，须扣留待工程判定，
+              不可直接续跑。恢复后先跑首件确认再放行队列。
+        impact:
+          blocked_processes: [fab.process.photo_exposure]
+          economic: >
+            光刻是典型瓶颈站点，停机损失近似等于停机时长 × 瓶颈产出率，
+            且不可通过后续赶工完全回补。可控旋钮有两个：PM 依从性
+            （用计划停机换非计划停机）与关键备件本地备货水位（用资金占用换停机时长）。
+            后者决定 MTTR 而非停机是否发生——若修复方案已明确却仍在等，
+            瓶颈就在备件调运或原厂工程师到场，不要继续往设备本体查。
+        tags: [光刻, 设备停机, 瓶颈, 排程]
+        notes: >
+          本条 provenance 为 model_prior：本轮 WebSearch 未取到可验证的停机根因
+          分类原文，未编造 URL。后续若取到 SEMI E10（设备可靠性/可用性/可维护性
+          定义）原文，应据此升级 provenance 并细化停机状态分类口径。
+
+          建模取舍（首轮审核结论）：备件/工程师到位延迟未建成 Cause 实体。
+          它影响 MTTR，不决定停机是否发生，建成 Cause 并用 may_cause 指向异常
+          会在图上产生一条"读起来是因果、语义上不是因果"的边，沿 may_cause
+          反查根因时会稳定混入候选集。故改写入本条 economic，
+          待第三层经营模型需要量化时再考虑建 Metric。
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null

@@ -102,3 +102,47 @@ relations:
     to: ext.metric.defect_rate
     note: 缺陷密度 ↔ 通用不良率。共性：空间分布签名用于溯源、与单位面积/个体数共同决定良率
     provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-26", reviewed_by: null}
+  - from: fab.cause.reticle_stage_error
+    type: may_cause
+    to: fab.anomaly.scanner_down
+    note: 报警集中于扫描动作阶段，常在固定 slit 位置重复
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.light_source_degradation
+    type: may_cause
+    to: fab.anomaly.scanner_down
+    note: 先表现为产出率缓降，再转硬停机
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.pm_overdue
+    type: may_cause
+    to: fab.anomaly.scanner_down
+    note: 停机前 PM 已超期，属排程决策后果
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.scanner_down
+    type: mitigated_by
+    to: fab.action.dispatch_field_service
+    note: 原厂锁定模块的唯一合规路径
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

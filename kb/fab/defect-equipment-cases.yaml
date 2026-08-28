@@ -163,3 +163,82 @@ cases:
         检出滞后是主要损失来源。WAT 暴露时批次已完成前段绝大部分工序，
         累计加工成本全部沉没。增设中段方阻抽测的成本远低于一次批量失效。
     tags: [注入, 电性, 延迟暴露]
+  - id: kb.fab.scanner_down_triage
+    domain: fab
+    title: 光刻机非计划停机排查与处置
+    anomaly_ref: fab.anomaly.scanner_down
+    detected_at_ref: fab.process.photo_exposure
+    severity: critical
+    symptoms:
+    - 机台报警停机，曝光工序在制批次无法继续流动
+    - 光刻区 WIP 在数小时内快速累积，队列长度陡增
+    - OEE 可用率跌落，主流程 CT 同步拉长
+    possible_causes:
+    - cause_ref: fab.cause.reticle_stage_error
+      likelihood: high
+      discriminator: '报警发生在扫描动作阶段而非光源侧，且常在特定 slit 位置或特定 扫描方向重复。查伺服跟随误差日志即可与光源类区分。
+
+        '
+    - cause_ref: fab.cause.light_source_degradation
+      likelihood: medium
+      discriminator: '停机前已有产出率缓降或曝光时间延长的趋势——"先慢后停"是光源劣化 的签名。伺服类停机是突发的，没有这段前兆。
+
+        '
+    - cause_ref: fab.cause.pm_overdue
+      likelihood: medium
+      discriminator: '查 PM 计划是否已超期。超期则这次停机应归因于排程决策， 而不是记成随机设备故障——归因错了，改善方向也会错。
+
+        '
+    - cause_ref: fab.cause.env_excursion
+      likelihood: low
+      discriminator: 温湿度或振动超限时多台设备同时报警；单台停机基本可排除
+    detection:
+    - metric_ref: core.metric.oee
+      signal: '可用率跌落，且要区分计划内 PM 与非计划停机。两者混在同一口径里 会让停机改善看起来毫无进展。
+
+        '
+    - metric_ref: core.metric.wip
+      signal: 光刻区队列长度陡升，是停机向下游传导的最早观测量
+    - metric_ref: core.metric.throughput
+      signal: 曝光层产出率缓降可作为光源劣化的前兆信号，早于硬停机
+    actions:
+    - action_ref: fab.action.dispatch_field_service
+      order: 1
+      condition: '判定为原厂锁定模块（工件台、光源）时立即报修并按合约等级升级。 厂内自行拆装会失去保修，且伺服系统需原厂重新校准。
+
+        '
+    - action_ref: fab.action.skip_ahead
+      order: 2
+      condition: '预估停机超过一个班次时改派同类机台，需确认套刻补正模型按机台管理， 否则改派本身会引入套刻偏移。注意越站分支多数情况下不适用—— 光刻是路径强制点，只有工艺允许延后且后续站点无时效性约束才可考虑。
+
+        '
+    - action_ref: fab.action.hold_lot
+      order: 3
+      condition: '停机瞬间在机批次可能处于部分曝光状态，须扣留待工程判定， 不可直接续跑。恢复后先跑首件确认再放行队列。
+
+        '
+    impact:
+      blocked_processes:
+      - fab.process.photo_exposure
+      economic: '光刻是典型瓶颈站点，停机损失近似等于停机时长 × 瓶颈产出率， 且不可通过后续赶工完全回补。可控旋钮有两个：PM 依从性 （用计划停机换非计划停机）与关键备件本地备货水位（用资金占用换停机时长）。
+        后者决定 MTTR 而非停机是否发生——若修复方案已明确却仍在等， 瓶颈就在备件调运或原厂工程师到场，不要继续往设备本体查。
+
+        '
+    tags:
+    - 光刻
+    - 设备停机
+    - 瓶颈
+    - 排程
+    notes: '本条 provenance 为 model_prior：本轮 WebSearch 未取到可验证的停机根因 分类原文，未编造 URL。后续若取到 SEMI E10（设备可靠性/可用性/可维护性
+      定义）原文，应据此升级 provenance 并细化停机状态分类口径。
+
+      建模取舍（首轮审核结论）：备件/工程师到位延迟未建成 Cause 实体。 它影响 MTTR，不决定停机是否发生，建成 Cause 并用 may_cause 指向异常 会在图上产生一条"读起来是因果、语义上不是因果"的边，沿
+      may_cause 反查根因时会稳定混入候选集。故改写入本条 economic， 待第三层经营模型需要量化时再考虑建 Metric。
+
+      '
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
