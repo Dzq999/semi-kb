@@ -15,11 +15,11 @@ relations:
     provenance: {source_type: model_prior, ref: null, confidence: high, created_at: "2026-08-26", reviewed_by: null}
 
   # ---- 金线不粘 NSOP ----
-  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.wire_nsop, note: 焊垫污染阻碍金属间化合物形成}
-  - {from: ap.cause.capillary_wear,    type: may_cause, to: ap.anomaly.wire_nsop, note: 集中于特定机台特定线位}
-  - {from: ap.cause.bond_param_drift,  type: may_cause, to: ap.anomaly.wire_nsop}
-  - {from: ap.cause.epoxy_bleed,       type: may_cause, to: ap.anomaly.wire_nsop, note: 跨工序传导：装片溢胶致键合不良}
-  - {from: ap.param.bond_power,        type: may_cause, to: ap.anomaly.wire_nsop, note: 功率不足为最常见直接原因}
+  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.wire_nsop, likelihood: medium, note: 焊垫污染阻碍金属间化合物形成}
+  - {from: ap.cause.capillary_wear,    type: may_cause, to: ap.anomaly.wire_nsop, likelihood: high, note: 集中于特定机台特定线位}
+  - {from: ap.cause.bond_param_drift,  type: may_cause, to: ap.anomaly.wire_nsop, likelihood: medium}
+  - {from: ap.cause.epoxy_bleed,       type: may_cause, to: ap.anomaly.wire_nsop, likelihood: high, note: 跨工序传导：装片溢胶致键合不良}
+  - {from: ap.param.bond_power,        type: may_cause, to: ap.anomaly.wire_nsop, likelihood: medium, note: 功率不足为最常见直接原因}
   - {from: ap.param.bond_stage_temp,   type: may_cause, to: ap.anomaly.wire_nsop}
   - {from: ap.anomaly.wire_nsop,       type: detected_at, to: ap.process.wire_bond, note: 拉力抽测与机台不粘报警}
   - {from: ap.anomaly.wire_nsop,       type: mitigated_by, to: ap.action.plasma_clean_rerun}
@@ -30,57 +30,57 @@ relations:
   - {from: ap.anomaly.wire_nsop,       type: blocks, to: ap.process.molding, note: 塑封后不可返工，须在此前判定}
 
   # ---- 塑封空洞 ----
-  - {from: ap.cause.emc_moisture,   type: may_cause, to: ap.anomaly.mold_void}
-  - {from: ap.param.transfer_speed, type: may_cause, to: ap.anomaly.mold_void, note: 过快卷入气体}
-  - {from: ap.param.mold_pressure,  type: may_cause, to: ap.anomaly.mold_void, note: 压力不足排气不净}
-  - {from: ap.param.mold_temp,      type: may_cause, to: ap.anomaly.mold_void, note: 温度偏低黏度高}
+  - {from: ap.cause.emc_moisture,   type: may_cause, to: ap.anomaly.mold_void, likelihood: high}
+  - {from: ap.param.transfer_speed, type: may_cause, to: ap.anomaly.mold_void, likelihood: medium, note: 过快卷入气体}
+  - {from: ap.param.mold_pressure,  type: may_cause, to: ap.anomaly.mold_void, likelihood: medium, note: 压力不足排气不净}
+  - {from: ap.param.mold_temp,      type: may_cause, to: ap.anomaly.mold_void, likelihood: low, note: 温度偏低黏度高}
   - {from: ap.anomaly.mold_void,    type: detected_at, to: ap.process.aoi, note: X-Ray/超声抽检，AOI 段拦截}
   - {from: ap.anomaly.mold_void,    type: mitigated_by, to: ap.action.bake_emc}
   - {from: ap.anomaly.mold_void,    type: mitigated_by, to: ap.action.hold_lot}
   - {from: ap.anomaly.mold_void,    type: blocks, to: ap.process.packing}
 
   # ---- 芯粒裂纹 ----
-  - {from: ap.cause.grind_wheel_clog,   type: may_cause, to: ap.anomaly.die_crack, note: 亚表面微裂纹为起点}
+  - {from: ap.cause.grind_wheel_clog,   type: may_cause, to: ap.anomaly.die_crack, likelihood: high, note: 亚表面微裂纹为起点}
   - {from: ap.cause.blade_wear,         type: may_cause, to: ap.anomaly.die_crack, note: 崩边扩展为裂纹}
-  - {from: ap.param.grind_feed_rate,    type: may_cause, to: ap.anomaly.die_crack}
-  - {from: ap.param.die_bond_force,     type: may_cause, to: ap.anomaly.die_crack, note: 装片压力压裂薄芯粒}
-  - {from: ap.anomaly.dicing_chipping,  type: may_cause, to: ap.anomaly.die_crack, note: 异常级联：崩边是裂纹起始源}
+  - {from: ap.param.grind_feed_rate,    type: may_cause, to: ap.anomaly.die_crack, likelihood: medium}
+  - {from: ap.param.die_bond_force,     type: may_cause, to: ap.anomaly.die_crack, likelihood: medium, note: 装片压力压裂薄芯粒}
+  - {from: ap.anomaly.dicing_chipping,  type: may_cause, to: ap.anomaly.die_crack, likelihood: high, note: 异常级联：崩边是裂纹起始源}
   - {from: ap.anomaly.die_crack,        type: detected_at, to: ap.process.aoi}
   - {from: ap.anomaly.die_crack,        type: mitigated_by, to: ap.action.hold_lot}
   - {from: ap.anomaly.die_crack,        type: mitigated_by, to: ap.action.replace_blade}
   - {from: ap.anomaly.die_crack,        type: blocks, to: ap.process.packing}
 
   # ---- 界面分层 ----
-  - {from: ap.cause.emc_moisture,      type: may_cause, to: ap.anomaly.delamination}
-  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.delamination, note: 界面污染降低附着力}
-  - {from: ap.param.cure_temp,         type: may_cause, to: ap.anomaly.delamination, note: 固化不足致交联度不够}
+  - {from: ap.cause.emc_moisture,      type: may_cause, to: ap.anomaly.delamination, likelihood: high}
+  - {from: ap.cause.pad_contamination, type: may_cause, to: ap.anomaly.delamination, likelihood: medium, note: 界面污染降低附着力}
+  - {from: ap.param.cure_temp,         type: may_cause, to: ap.anomaly.delamination, likelihood: medium, note: 固化不足致交联度不够}
   - {from: ap.anomaly.delamination,    type: detected_at, to: ap.process.aoi, note: C-SAM 超声扫描}
   - {from: ap.anomaly.delamination,    type: mitigated_by, to: ap.action.bake_emc}
   - {from: ap.anomaly.delamination,    type: mitigated_by, to: ap.action.hold_lot}
   - {from: ap.anomaly.delamination,    type: blocks, to: ap.process.packing}
 
   # ---- 切割崩边 ----
-  - {from: ap.cause.blade_wear,        type: may_cause, to: ap.anomaly.dicing_chipping}
-  - {from: ap.param.cut_feed_speed,    type: may_cause, to: ap.anomaly.dicing_chipping}
-  - {from: ap.param.blade_rpm,         type: may_cause, to: ap.anomaly.dicing_chipping}
+  - {from: ap.cause.blade_wear,        type: may_cause, to: ap.anomaly.dicing_chipping, likelihood: high}
+  - {from: ap.param.cut_feed_speed,    type: may_cause, to: ap.anomaly.dicing_chipping, likelihood: medium}
+  - {from: ap.param.blade_rpm,         type: may_cause, to: ap.anomaly.dicing_chipping, likelihood: low}
   - {from: ap.anomaly.dicing_chipping, type: detected_at, to: ap.process.dicing, note: 切割后崩边量测}
   - {from: ap.anomaly.dicing_chipping, type: mitigated_by, to: ap.action.replace_blade}
   - {from: ap.anomaly.dicing_chipping, type: mitigated_by, to: ap.action.hold_lot}
   - {from: ap.anomaly.dicing_chipping, type: blocks, to: ap.process.die_attach}
 
   # ---- 缺球/连球 ----
-  - {from: ap.cause.reflow_profile_drift, type: may_cause, to: ap.anomaly.missing_ball}
-  - {from: ap.param.reflow_peak_temp,     type: may_cause, to: ap.anomaly.missing_ball}
+  - {from: ap.cause.reflow_profile_drift, type: may_cause, to: ap.anomaly.missing_ball, likelihood: medium}
+  - {from: ap.param.reflow_peak_temp,     type: may_cause, to: ap.anomaly.missing_ball, likelihood: medium}
   - {from: ap.anomaly.missing_ball,       type: detected_at, to: ap.process.aoi}
   - {from: ap.anomaly.missing_ball,       type: mitigated_by, to: ap.action.hold_lot}
   - {from: ap.anomaly.missing_ball,       type: blocks, to: ap.process.packing}
 
   # ---- 终测良率下滑 ----
-  - {from: ap.cause.probe_card_wear,   type: may_cause, to: ap.anomaly.ft_yield_drop, note: 伪失效，重测通过率高}
-  - {from: ap.anomaly.wire_nsop,       type: may_cause, to: ap.anomaly.ft_yield_drop, note: 异常级联：键合不良在终测暴露为开路}
-  - {from: ap.anomaly.delamination,    type: may_cause, to: ap.anomaly.ft_yield_drop}
-  - {from: ap.anomaly.die_crack,       type: may_cause, to: ap.anomaly.ft_yield_drop}
-  - {from: ap.param.test_time,         type: may_cause, to: ap.anomaly.ft_yield_drop, note: 缩测过度致覆盖不足或误判}
+  - {from: ap.cause.probe_card_wear,   type: may_cause, to: ap.anomaly.ft_yield_drop, likelihood: high, note: 伪失效，重测通过率高}
+  - {from: ap.anomaly.wire_nsop,       type: may_cause, to: ap.anomaly.ft_yield_drop, likelihood: high, note: 异常级联：键合不良在终测暴露为开路}
+  - {from: ap.anomaly.delamination,    type: may_cause, to: ap.anomaly.ft_yield_drop, likelihood: medium}
+  - {from: ap.anomaly.die_crack,       type: may_cause, to: ap.anomaly.ft_yield_drop, likelihood: medium}
+  - {from: ap.param.test_time,         type: may_cause, to: ap.anomaly.ft_yield_drop, likelihood: low, note: 缩测过度致覆盖不足或误判}
   - {from: ap.anomaly.ft_yield_drop,   type: detected_at, to: ap.process.final_test}
   - {from: ap.anomaly.ft_yield_drop,   type: mitigated_by, to: ap.action.replace_probe_card}
   - {from: ap.anomaly.ft_yield_drop,   type: mitigated_by, to: ap.action.retest, note: 须先确认治具已恢复}
@@ -88,9 +88,9 @@ relations:
   - {from: ap.anomaly.ft_yield_drop,   type: blocks, to: ap.process.packing}
 
   # ---- 键合机停机 → WIP 堆积 ----
-  - {from: ap.cause.fixture_shortage, type: may_cause, to: ap.anomaly.bonder_down, note: 机台可用但无治具，属非设备型停摆}
-  - {from: ap.cause.fixture_shortage, type: may_cause, to: core.anomaly.wip_bubble, note: 后段易被忽略的堆积成因}
-  - {from: ap.anomaly.bonder_down,    type: may_cause, to: core.anomaly.wip_bubble}
+  - {from: ap.cause.fixture_shortage, type: may_cause, to: ap.anomaly.bonder_down, likelihood: low, note: 机台可用但无治具，属非设备型停摆}
+  - {from: ap.cause.fixture_shortage, type: may_cause, to: core.anomaly.wip_bubble, likelihood: high, note: 后段易被忽略的堆积成因}
+  - {from: ap.anomaly.bonder_down,    type: may_cause, to: core.anomaly.wip_bubble, likelihood: high}
   - {from: ap.anomaly.bonder_down,    type: detected_at, to: ap.process.wire_bond}
   - {from: ap.anomaly.bonder_down,    type: mitigated_by, to: ap.action.reallocate_fixture}
   - {from: ap.anomaly.bonder_down,    type: blocks, to: ap.process.wire_bond}
@@ -127,6 +127,7 @@ relations:
   - from: ap.cause.efo_electrode_fouling
     type: may_cause
     to: ap.anomaly.bonder_down
+    likelihood: high
     note: 报警集中在成球阶段，随打线点数累积加重
     confidence: medium
     provenance:
@@ -138,6 +139,7 @@ relations:
   - from: ap.cause.wire_feed_jam
     type: may_cause
     to: ap.anomaly.bonder_down
+    likelihood: high
     note: 突发送线中断，穿线复位后即恢复
     confidence: medium
     provenance:
@@ -149,6 +151,7 @@ relations:
   - from: ap.cause.bond_head_servo_fault
     type: may_cause
     to: ap.anomaly.bonder_down
+    likelihood: medium
     note: 报警指向轴系或换能器自检，通常需原厂介入
     confidence: medium
     provenance:
@@ -195,6 +198,7 @@ relations:
   - from: ap.cause.flux_print_defect
     type: may_cause
     to: ap.anomaly.missing_ball
+    likelihood: high
     note: 印刷量不足致缺球、渗出致连球；分布跟印刷版面走而非跟炉内温区走
     provenance:
       source_type: web
@@ -232,3 +236,16 @@ relations:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+
+  # ---- 机台状态作为独立异常来源（Equipment -> Anomaly）----
+  # 收录判据与 fab 层一致：只写机台自身状态可独立引发的异常，不写工序归属的
+  # 重复；停机类异常（bonder_down）不连，那是同义反复。likelihood 留空，
+  # 理由同 fab 层——缺现场 PM 与稼动数据，留空表示未评估。
+  - {from: ap.equip.wire_bonder, type: may_cause, to: ap.anomaly.wire_nsop, note: 换能器效率衰减与焊头/线夹状态劣化，同配方下不粘率随机台与线位分布差异明显}
+  - {from: ap.equip.die_bonder, type: may_cause, to: ap.anomaly.die_crack, note: 吸嘴磨损与顶针高度失准致取放冲击超出薄芯粒承受范围}
+  - {from: ap.equip.grinder, type: may_cause, to: ap.anomaly.die_crack, note: 主轴跳动与砂轮修整状态劣化加深亚表面微裂纹}
+  - {from: ap.equip.dicing_saw, type: may_cause, to: ap.anomaly.dicing_chipping, note: 主轴径向跳动与刀片法兰装夹偏差，表现为沿切割方向的周期性崩边}
+  - {from: ap.equip.mold_press, type: may_cause, to: ap.anomaly.mold_void, note: 模具排气道堵塞与加热板温度分布不均，同模不同腔空洞率差异显著}
+  - {from: ap.equip.ball_mounter, type: may_cause, to: ap.anomaly.missing_ball, note: 植球治具孔位堵塞与真空吸附压力衰减，缺球位置在治具坐标上重复出现}
+  - {from: ap.equip.cure_oven, type: may_cause, to: ap.anomaly.delamination, note: 炉腔温度分布漂移致局部固化度不足，分层集中于特定炉位}
+  - {from: ap.equip.final_tester, type: may_cause, to: ap.anomaly.ft_yield_drop, note: 测试机资源老化与接口板接触劣化造成误判性良率下滑，需以重测判别}

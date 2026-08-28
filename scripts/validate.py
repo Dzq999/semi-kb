@@ -134,6 +134,18 @@ def check_relations(entities: dict, relations: list[dict], meta: dict) -> None:
         if conf is not None and conf not in prov_allowed:
             add("error", "R006", f"关系 confidence={conf!r} 非法：{a} -> {b} ({where})")
 
+        # R017 边权只在有定义的关系类型上成立
+        lik_schema = meta.get("likelihood_schema") or {}
+        lik = rel.get("likelihood")
+        if lik is not None:
+            if lik not in (lik_schema.get("allowed") or []):
+                add("error", "R017",
+                    f"关系 likelihood={lik!r} 非法：{a} -> {b} ({where})")
+            if rtype not in (lik_schema.get("applies_to") or []):
+                add("error", "R017",
+                    f"{rtype} 上不允许 likelihood（只对 "
+                    f"{lik_schema.get('applies_to')} 有定义）：{a} -> {b} ({where})")
+
 
 def check_derived(entities: dict, derived: list[dict], meta: dict) -> None:
     """只校验派生 belongs_to 的 to 端类型。

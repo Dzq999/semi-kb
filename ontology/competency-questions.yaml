@@ -179,7 +179,8 @@ in_scope:
     caveat: >
       只对量测与测试机台成立。detected_at 覆盖的是检出点（量测站、测试站），
       不是全部工序，所以加工类机台走这条路径命中不到东西——那不是数据缺失，
-      是"异常在量测站被检出"这件事本身。加工机台停机的影响见 OOS11。
+      是"异常在量测站被检出"这件事本身。加工机台状态引发的质量异常见 CQ22，
+      停机的产出后果见 OOS11。
     match_terms: ["量测能力", "检出能力", "量测机台", "测试机台", "影响检出", "量测停机"]
     probe: {from_type: Equipment, steps: [{via: belongs_to, dir: out, to_type: Process}, {via: detected_at, dir: in}]}
 
@@ -233,6 +234,27 @@ in_scope:
     caveat: "ext.* 豁免本地解析，类比目标只有 ID 与说明，对不对无法校验——见 OOS07"
     match_terms: ["跨行业", "其他行业", "类比", "别的行业", "行业对照"]
     probe: {from_type: Anomaly, steps: [{via: analogous_to, dir: out}]}
+
+  - id: CQ22
+    q: "某台加工机台状态劣化（老化、PM 逾期、腔体/耗材条件），会引发哪些质量异常？"
+    requires:
+      entity_types: [Equipment, Anomaly]
+      relations: [may_cause]
+    answered_via: "Equipment -may_cause-> Anomaly 单跳"
+    caveat: >
+      只覆盖"机台自身状态引发质量异常"。两件事刻意不在范围内：
+      一是停机的产出后果（停机 -> WIP 堆积 -> 交期），那要产能与时间维度，见 OOS11；
+      二是腔体级差异，多腔机台的边挂在机台上，同机不同腔分不开，见 OOS04。
+      这些边的 likelihood 全部留空——机台维度的先验频度需现场 PM 与稼动数据，
+      当前无 kb 实例支撑，留空表示未评估，不是低概率。
+    # 耗材/机件的"磨损、老化、寿命末期"是这条的核心问法，因此除了部件名
+    # 还写出复合词：单独的"抛光垫"只得 1 个意图分，会与 CQ03（级联）的
+    # "会导致"打平，靠 ID 字典序被压掉。复合词让具体问法拿到更高的分。
+    match_terms: ["机台老化", "机台状态", "pm 逾期", "pm逾期", "保养逾期", "腔体污染",
+                  "耗材寿命", "寿命末期", "靶材", "靶材寿命", "抛光垫", "抛光垫磨损",
+                  "刀片磨损", "砂轮", "吸嘴磨损", "喷淋头", "槽液", "机台劣化",
+                  "机台引发", "哪台机造成", "机台导致", "换能器"]
+    probe: {from_type: Equipment, steps: [{via: may_cause, dir: out}]}
 
 # ---------------------------------------------------------------
 # 明确答不了的问题
@@ -321,17 +343,20 @@ out_of_scope:
   - id: OOS11
     q: "某台加工机台（扩散炉、蚀刻机、塑封机）停机，会引发哪些异常？"
     missing: >
-      Equipment 与 Anomaly 之间没有直接关系。现有唯一通路是
-      Equipment -belongs_to-> Process <-detected_at- Anomaly，而 detected_at
-      是检出点不是发生点，只覆盖量测与测试工序，加工机台走不通。
+      产能与时间维度。"停机会引发什么"问的是产出后果——停多久、损失多少片、
+      WIP 往哪堆、交期推几天。Equipment 上没有 UPH、并测数、换型时间、
+      MTTR 字段，这条链算不出来。
+      注意与 CQ22 的分界：机台状态引发**质量**异常已经可答（Equipment
+      -may_cause-> Anomaly，2026-08-28 补上）；这里缺的是**产出**后果那一支。
     precondition: >
-      新增 Equipment -may_cause-> Anomaly，或建立 Equipment 与
-      core.state.* / core.anomaly.equipment_down 的关联
+      Equipment 增加产能字段（UPH / 并测数 / 换型时间 / MTTR），
+      并把停机时长与 WIP、CT 的传导关系量化——即 OOS02、OOS03 的量化数据
     note: >
-      fab.anomaly.scanner_down 与 ap.anomaly.bonder_down 存在并 refines 到
-      core.anomaly.equipment_down，但它们是异常实体、与 35 台设备实体之间没有边。
-      也就是说"哪台机停了"和"停机异常"目前是两套互不连接的表达。
-      这条是补设备实体时暴露出来的——原先设备不存在，这个断裂无从发现。
+      刻意不建 Equipment -may_cause-> *_down 这类边：scanner_down 的语义就是
+      "扫描机失去产出能力"，再写"扫描机可能导致扫描机停机"是同义反复，
+      会让图里多一批不携带信息的边。停机异常与设备实体之间该有的不是因果边，
+      而是"这次停机发生在哪台机上"的实例级归属——那属于第二层 kb 的字段，
+      不是本体关系。
     match_terms: ["加工机台停机", "炉停机", "炉子停机", "蚀刻机停机", "塑封机停机",
                   "机台停机", "设备停机", "停机会引发", "停机引发", "停机导致",
                   "停机会造成", "机器坏了", "机台故障导致"]

@@ -119,9 +119,18 @@ def build_graph(entities: dict, relations: list[dict], derived: list[dict], meta
             "note": rel.get("note"),
             "derived": bool(rel.get("_derived")),
         }
+        # 边权进邻接表，不只进 edges 列表：按概率排根因走的是 in_adj[异常]，
+        # 只写在 edges 里的话下游得先全表扫一遍才能排序。
+        lik = rel.get("likelihood")
+        if lik is not None:
+            edge["likelihood"] = lik
         edges.append(edge)
-        out_adj[a].append({"type": t, "to": b, "derived": edge["derived"]})
-        in_adj[b].append({"type": t, "from": a, "derived": edge["derived"]})
+        out_hop = {"type": t, "to": b, "derived": edge["derived"]}
+        in_hop = {"type": t, "from": a, "derived": edge["derived"]}
+        if lik is not None:
+            out_hop["likelihood"] = in_hop["likelihood"] = lik
+        out_adj[a].append(out_hop)
+        in_adj[b].append(in_hop)
 
     # 主流程链：Route.steps 即业务视角的有序路径，附上每步的异常挂载数便于风险定位
     routes = {}

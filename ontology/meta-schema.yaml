@@ -47,7 +47,10 @@ relation_types:
   performed_on: {from: [Process], to: [Material], desc: "工序作用于物料"}
   controls:     {from: [Parameter], to: [Process], desc: "参数调控工序"}
   measured_by:  {from: [Process, Anomaly], to: [Metric], desc: "由指标量测/判定"}
-  may_cause:    {from: [Cause, Parameter, Process, Anomaly, State], to: [Anomaly], desc: "可能导致异常；Anomaly->Anomaly 表示异常级联"}
+  # Equipment 作为 from 端：机台自身状态（老化、PM 逾期、腔体污染、Tool-to-Tool
+  # 差异）是一类独立的异常来源，不能挤进 Cause 或 Process。原先缺这一端，
+  # "某机台停机会引发哪些异常"在图上无路可走，只能声明为不可答。
+  may_cause:    {from: [Cause, Parameter, Process, Equipment, Anomaly, State], to: [Anomaly], desc: "可能导致异常；Anomaly->Anomaly 表示异常级联；Equipment->Anomaly 表示机台状态引发异常"}
   detected_at:  {from: [Anomaly], to: [Process], desc: "异常在此工序被检出"}
   mitigated_by: {from: [Anomaly], to: [Action], desc: "异常由此动作处置"}
   blocks:       {from: [Anomaly, State], to: [Process, Route], desc: "阻塞后续工序/路径"}
@@ -73,7 +76,18 @@ entity_optional_fields:
   - aliases
 
 relation_required_fields: [from, type, to]
-relation_optional_fields: [note, confidence, provenance]
+relation_optional_fields: [note, confidence, likelihood, provenance]
+
+# 边权：likelihood 与 confidence 是两件事，混用会让排序失去意义。
+#   confidence  我对"这条边存在"有多确信 —— 知识质量，全关系类型通用
+#   likelihood  这条因果在现场实际发生的相对频度 —— 领域事实，只对 may_cause 有定义
+# 取值刻意与 kb_schema.possible_causes_item.likelihood 同一套枚举：
+# 第二层实例早就有 likelihood，本体层却没有，导致按概率排根因只能退回 kb 查、
+# 图本身用不上。两层对齐后 may_cause 子图才是可排序的。
+likelihood_schema:
+  allowed: [high, medium, low]
+  applies_to: [may_cause]
+  desc: "根因的经验先验频度。缺省表示未评估，不等于 low"
 
 # 派生关系：由实体字段自动生成，不在 relations/*.yaml 中重复维护。
 # build_index.py 负责展开，避免同一事实两处录入导致漂移。
@@ -149,6 +163,12 @@ validation_rules:
     severity: error
   - id: R015
     desc: "知识库实例的 *_ref 域自洽：只能引用自身域或 core.*，禁止 fab↔ap 直接互引"
+    severity: error
+  - id: R017
+    desc: >
+      likelihood 取值在 likelihood_schema.allowed 内，且只出现在
+      likelihood_schema.applies_to 声明的关系类型上。写在别处一律报错——
+      在没有定义的边上放权重，会让下游误以为那条边可排序。
     severity: error
   - id: R016
     desc: >
