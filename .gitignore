@@ -1,6 +1,11 @@
 # 派生产物：由 scripts/build_index.py 从本体重新生成
 build/
 
+# 仿真运行结果：由 scripts/simulate.py --output 生成，README 里已归为派生文件。
+# 场景（simulation/scenarios/）是输入、要进版本库；跑出来的结果是输出、不进。
+# 留着会让 daily_refresh.py 的 require_git_clean 前置检查拦住下一次自动扩充。
+simulation/runs/
+
 # Python
 __pycache__/
 *.py[cod]
