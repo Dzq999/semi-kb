@@ -276,3 +276,80 @@ cases:
       confidence: medium
       created_at: '2026-08-27'
       reviewed_by: null
+  - id: kb.ap.missing_ball_triage
+    domain: ap
+    title: 缺球/连球排查与处置
+    anomaly_ref: ap.anomaly.missing_ball
+    detected_at_ref: ap.process.aoi
+    severity: medium
+    symptoms:
+    - AOI 检出接点缺球，或相邻锡球桥连
+    - 缺球位置与印刷版面或植球治具孔位呈固定对应
+    - 连球多出现在间距最小的接点区域
+    - 可能伴随锡球表面起皱（助焊剂活性不足或回流中流失致氧化）
+    - 共面性量测超规，此时须与缺球分开判定
+    possible_causes:
+    - cause_ref: ap.cause.flux_print_defect
+      likelihood: high
+      discriminator: '首要排除项。看不良的空间分布：跟印刷版面或治具孔位走（位置固定、 同版面重复出现）指向印刷不良；跟炉内温区走（沿炉长方向或按载具 位置分布）指向回流。缺球与连球同批共存也指向本成因——
+        印刷黏度过低渗出致连球、过高填不满致缺球，同一物性两侧偏离 产生两种相反的表观不良。再查黏性：黏性不足时锡球在搬运中移位， 缺球位置随机而非固定，这一支与印刷量不足要分开看。
+
+        '
+    - cause_ref: ap.cause.reflow_profile_drift
+      likelihood: medium
+      discriminator: '不良沿炉长方向或按载具位置呈梯度分布，且与炉温曲线仪校核记录的 温区衰退、链速偏移时点吻合。与印刷不良的关键区分：本成因下 印刷后（回流前）的检查是正常的——若厂内有回流前抽检，
+        一次比对即可定案，不必等 AOI。
+
+        '
+    - cause_ref: ap.param.reflow_peak_temp
+      likelihood: medium
+      discriminator: '与配方变更时点重合。峰值偏低时润湿不足致缺球且锡球形貌偏球形 残留；偏高时助焊剂在到达润湿温度前已耗尽或流失， 表观是锡球起皱与氧化。查参数变更记录，不要与炉体衰退混判——
+        前者是设定变了，后者是设定没变而实际受热变了。
+
+        '
+    detection:
+    - metric_ref: ap.metric.coplanarity
+      signal: '共面性超规。但它是并发观测量而非缺球本身的判据—— 缺球在共面性数据上表现为该接点缺测点，而连球可能仍在规格内。 两者要分开判，把共面性超规直接当缺球会漏判连球。
+
+        '
+    - metric_ref: core.metric.yield
+      signal: '植球站不良率趋势。按印刷版面位置与炉内位置两个维度分别做分布统计， 哪个维度先聚集就指向哪类成因——这是本异常最快的分流手段。
+
+        '
+    actions:
+    - action_ref: ap.action.hold_lot
+      order: 1
+      condition: '根因未明前先扣留。缺球与连球的处置方向相反（前者可返工、 后者多判废），未分清就放行会把判废品混入返工流。
+
+        '
+    - action_ref: ap.action.reball_rework
+      order: 2
+      condition: '仅对缺球分支执行，重植后复量共面性并复检外观。 连球不走本动作。返工次数须受规范限制——每次重植追加一次热历程， 无限返工等于用可靠性换良率。
+
+        '
+    impact:
+      blocked_processes:
+      - ap.process.packing
+      economic: '与多数后段不良相反，本异常的缺球分支可返工挽回，因此经济关键不在 止损而在分流准确性：把可返工的缺球误判为连球等于多报废， 把连球混进返工流则把不可靠品送出厂。 成因侧的杠杆在印刷条件——它是可调工艺窗口，纠正成本低于换料或
+        改炉温曲线，这也是把 flux_print_defect 排在首位排除的经济理由。
+
+        '
+    tags:
+    - 植球
+    - 缺球
+    - 连球
+    - 助焊剂
+    - 印刷
+    notes: '助焊剂印刷与黏性两条机理来自荒川化学（Arakawa Chemical）Room of flux 的 missing ball 与 flux print failure 两页，均已取到正文：
+      缺球主因列为"未植上 / 印刷缺失或未填满致固定力不足 / 黏性不足致移位"， 印刷不良主因列为"物性（黏度为主）+ 印刷条件"。锡球起皱一条来自同站 solder ball deformity
+      页（活性不足或回流中助焊剂流失致氧化）。 该站点 fluxroom/en/ 下只有部分失效模式有独立页面，bridge.html 与 void.html 不存在且被 301 到站点根 https://pinealpha.jp/
+      —— 若后续复查发现链接指向首页，是这个原因，不是记错。 厂商资料的立场偏向助焊剂物性，其把印刷类机理列为首要成因这一点 需按此立场折价看待；治具孔位堵塞与回流侧的判别逻辑、 以及各成因的 likelihood
+      排序来自模型预训练知识，未经产线数据验证。 刻意未写共面性的具体数值门槛：本轮未取到 JEDEC 封装外形文件原文， 写了就是伪装成有据可查的编造。
+
+      '
+    provenance:
+      source_type: web
+      ref: https://pinealpha.jp/fluxroom/en/missing.html
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

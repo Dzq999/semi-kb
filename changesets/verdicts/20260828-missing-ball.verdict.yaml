@@ -1,0 +1,112 @@
+changeset: 20260828-missing-ball.yaml
+# 自审。审核方与生成方是同一个上下文，如实标出——假装独立审过比自审更糟。
+# 确定性部分由 precheck.py 判定（ERROR 0 | WARN 1，唯一的 warn 是
+# "kb_case 引用本提案新增实体、apply 会转人工"，属预期行为不是缺陷）。
+# 下面只记需要判断的部分，每条写清我实际查了什么。
+#
+# 本轮与前几轮的一个实质差异：前几轮 verdict 记录"本环境出站 HTTPS 全不可用
+# （curl 报 schannel SEC_E_NO_CREDENTIALS）"，因此一律标 model_prior。
+# 本轮找到可用路径——本机代理 127.0.0.1:7890 + Python ssl 用 certifi 的
+# CA bundle（系统 schannel 与 Python 默认信任链都验不过代理证书，
+# 两者都失败，certifi 能过）。故本轮的 web ref 是真取到正文的，
+# 不是靠搜索结果标题推断的。每条 ref 的正文我都读过并在下面写明读到了什么。
+verifier: self:kb-refresh
+verified_at: "2026-08-28 16:40"
+items:
+  - key: "ap.cause.flux_print_defect"
+    section: entities
+    verdict: pass
+    reason: >-
+      实读 13 条已有 ap cause，无一涉及助焊剂或印刷环节：最接近的
+      reflow_profile_drift 是"炉温区衰退或链速偏移致实际受热曲线偏离设定"，
+      属回流侧且是设备衰退型；本条是植球前的印刷工序与材料物性，
+      失效部位与可调手段都不同，不重复。
+      web ref 正当：https://pinealpha.jp/fluxroom/en/fluxprintfailure.html
+      实取到正文，原文把 viscosity 列为影响 printability 的 main physical
+      property，并明确"too low 易 bleed 致 bridging、too high 难填满致
+      lacking and unfilled"，以及印刷条件清单（squeegee 材质与角度、印压、
+      印速、金属掩膜形状、基板与掩膜间隙、分离速度）。description 里这两句
+      是对该原文的转述，不是我的推断。
+      未写任何标准号或数值阈值，precheck 的 CITE_PAT lint 未命中——
+      黏度的具体区间原文没给，我也没编。
+      须折价看待的一点已写进 kb_case 的 notes：来源是助焊剂厂商，
+      立场偏向助焊剂物性，其把印刷类机理列为首要成因这一判断带商业立场。
+      我仍把它排在 likelihood high，理由是它与"分布跟印刷版面走"这个
+      现场可观测的判别信号自洽，而不是因为厂商这么说。
+
+  - key: "ap.action.reball_rework"
+    section: entities
+    verdict: pass
+    reason: >-
+      实读 11 条已有 ap action 的 description 与 economic_hooks 后确认不重复。
+      逐类比对：换耗材类（replace_blade / replace_capillary /
+      clean_efo_electrode / replace_probe_card）作用对象都是设备或治具，
+      本条作用于产品本身；调参类（adjust_dispense / bond_param_doe）改的是
+      工艺窗口，不处理已产生的不良品；bake_emc 最需要辨析——它也作用于物料，
+      但对象是尚未使用的库存塑封料且目的是除湿，本条是对已完成植球的产品
+      补植或重植，处置对象与手段都不同。
+      retest 的措辞相近（"次数须受规范限制"），但它限制的是重复测量，
+      代价是产能与放宽标准；本条限制的是重复热历程，代价是可靠性。
+      affects 集合 [rework_rate, yield, cost_per_unit] 与 11 条中任一条
+      都不完全相同（precheck 的 affects 重复 lint 未报）。
+      标 model_prior 正确：连球不宜重植、热历程累积是隐性代价这两条判断
+      来自模型预训练知识，本轮未取到厂商返工规范原文，故不填 web ref。
+
+  - key: "ap.cause.flux_print_defect|may_cause|ap.anomaly.missing_ball"
+    section: relations
+    verdict: pass
+    reason: >-
+      may_cause 语义成立：印刷不良直接导致缺球/连球发生，不是只影响排查难度
+      或修复时长，precheck 的 MTTR 措辞 lint 未命中。
+      ref 用的是 missing.html 而非 fluxprintfailure.html，这是刻意的——
+      前者是从缺球这个失效模式反向列出的成因（原文三条：未植上 /
+      印刷缺失或未填满致固定力不足 / 黏性不足致移位），正是本条边的方向；
+      后者讲的是印刷不良自身的机理，用作实体的 ref。两个 URL 都实取到正文。
+      note"分布跟印刷版面走而非跟炉内温区走"与 kb_case 里该 cause 的
+      discriminator 一致，不矛盾。
+
+  - key: "ap.anomaly.missing_ball|mitigated_by|ap.action.reball_rework"
+    section: relations
+    verdict: pass
+    reason: >-
+      方向与语义正确。这条边补上之后，实体 economic_hooks 里
+      "缺球返工成本低，是后段少数可挽回的成型类不良"这句话在图上才有落点——
+      在此之前 missing_ball 的 mitigated_by 只有 hold_lot，
+      从图上回溯处置只能得到"扣留"，与实体自述矛盾。
+      note 限定"仅适用于缺球分支；连球通常判废"，与 kb_case 的 actions
+      条件一致，避免图上被读成对连球也适用。
+      补记：本条初版未写 provenance，dry-run 被拦（无 provenance 时判为
+      low，低于 min_confidence: medium）。补的是 model_prior / medium，
+      不是为过闸门而抬可信度——"缺球可返工、连球判废"属模型预训练的
+      封装常识，与该动作实体自身的 confidence 同级，标 medium 是如实的。
+      对照：同提案里另一条 may_cause 标 web/medium 因为取到了正文，
+      两条的 source_type 不同正反映了证据强度不同。
+
+  - key: "kb.ap.missing_ball_triage"
+    section: kb_cases
+    verdict: pass
+    reason: >-
+      3 条 possible_causes 的 discriminator 可互相区分，且分流轴是统一的
+      "看空间分布的聚集维度"：印刷版面维度 vs 炉内位置维度 vs 配方变更时点。
+      这比逐条列现象更有判别力，也是本条最有价值的部分。
+      likelihood 排序把 flux_print_defect 放 high 的依据是它与现场可观测
+      信号自洽、且纠正成本最低（先排除便宜的），不是照抄厂商立场。
+      reflow_profile_drift 与 reflow_peak_temp 同为 medium 且写清了区分：
+      "设定变了"vs"设定没变而实际受热变了"，这是两者最容易混判处。
+      detection 有一条刻意的克制：coplanarity 是本异常在本体 metrics 字段里
+      唯一挂着的指标，但我把它标为"并发观测量而非缺球本身的判据"，
+      并说明缺球表现为缺测点、连球可能仍在规格内。把共面性超规直接当缺球
+      判据会漏判连球——这一点若不写明，后来者很可能照 metrics 字段直接用。
+      actions.order 成立：根因未明前先扣留，理由是缺球与连球处置方向相反
+      （可返工 vs 多判废），未分清就放行会把判废品混入返工流。
+      impact.economic 未做任何量化承诺，precheck 量化 lint 未命中；
+      它指出本异常与多数后段不良相反——经济关键在分流准确性而非止损，
+      这与实体 economic_hooks 的 rework_rate 一致。
+      notes 记了三件必须留痕的事：来源立场需折价、
+      bridge.html/void.html 不存在且 301 到站点根（复查时链接指向首页
+      是这个原因不是记错）、以及刻意未写共面性数值门槛的理由。
+      遗留两处，有意不在本轮补：一是"植球治具孔位堵塞"这条实体描述里
+      提到的成因仍无对应 Cause 实体（本轮已补印刷侧，治具侧需另找依据，
+      凭空建等于把描述里的一句话升格成本体概念）；二是回流前抽检这个
+      判别手段在本体里没有对应 Process 实体，discriminator 里以
+      "若厂内有回流前抽检"的条件句写法回避了断言其存在。

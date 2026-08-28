@@ -261,3 +261,44 @@ entities:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - id: ap.cause.flux_print_defect
+    type: Cause
+    name_zh: 助焊剂印刷不良
+    name_en: Flux Print Defect
+    domain: ap
+    description: '植球前助焊剂印刷量不足、未填满或渗出。荒川化学的技术资料把黏度列为 影响印刷性的主要物性：黏度过低易渗出并在焊接时桥连，黏度过高则难以 填满印刷区域而出现缺失与未填满。印刷条件（刮刀材质与角度、印压、
+      印速、金属掩膜形状、基板与掩膜间隙及分离速度）需针对基板与助焊剂 成对优化。另一条独立机理是黏性不足致锡球固定不住而移位。 判别要点：缺球与连球同批共存、且分布跟印刷版面走（而非跟炉内温区走） 时指向本成因——这是与回流曲线漂移最快的区分方式。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      note: 印刷条件是可调工艺窗口，纠正成本低于换料或改炉温曲线
+    provenance:
+      source_type: web
+      ref: https://pinealpha.jp/fluxroom/en/fluxprintfailure.html
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: ap.action.reball_rework
+    type: Action
+    name_zh: 补植/重植锡球
+    name_en: Reball Rework
+    domain: ap
+    description: '对缺球接点补植锡球或整体去球重植，重植后须复量共面性并复检外观。 与更换耗材类动作不同：本动作作用于产品而非设备，因此每次执行都 追加一次热历程，返工次数须受规范限制。连球一般不走本动作——
+      桥连处已形成金属连接，去球重植的把握远低于补植缺失接点。
+
+      '
+    economic_hooks:
+      affects:
+      - rework_rate
+      - yield
+      - cost_per_unit
+      note: 后段少数可挽回的不良，返工成本远低于判废，但热历程累积是隐性代价
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
