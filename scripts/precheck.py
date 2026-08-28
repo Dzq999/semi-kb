@@ -47,6 +47,26 @@ import common as C  # noqa: E402
 CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
 SECTIONS = ("entities", "relations", "kb_cases")
 
+# 以下三组词表把历次审核里模型反复做的判断沉淀成确定性 lint。
+# 都只报 warn：它们是"值得看一眼"的信号，不是铁定违规，
+# 判成 error 会把正当写法也拦住。
+
+# MTTR 语义。上一轮 fab.cause.spare_part_shortage 因自述"不引发停机，
+# 但决定停机持续多久"却用 may_cause 指向异常而被 reject——它影响修复时长，
+# 不决定异常是否发生。这类措辞与 may_cause 并存就该复查。
+MTTR_WORDS = ("持续多久", "持续时长", "修复时长", "停机时长", "多久才能",
+              "恢复时间", "维修时长", "mttr", "MTTR")
+
+# 需要文献支撑的具体断言。标 model_prior 却写了标准号或量化阈值，
+# 是"看起来有据可查、实际是编的"——比标 model_prior 更糟。
+CITE_PAT = re.compile(
+    r"(SEMI\s*[A-Z]\d+|JEDEC|JESD\d+|J-STD-\d+|IPC[\s/-]|ISO\s*\d+|"
+    r"ASTM\s*[A-Z]?\d+|\d+\s*(nm|µm|um|μm|ppm|ppb|kPa|MPa|°C|℃|小时|分钟)\b|"
+    r"\d+\s*%)", re.IGNORECASE)
+
+# 经济钩子里的量化承诺。没有仿真引擎兜底时，写死数字等于凭空承诺。
+QUANT_PAT = re.compile(r"(\d+\s*(倍|成|%)|提升\s*\d|降低\s*\d|节省\s*\d)")
+
 # kb_case 里各 ref 字段期望的目标实体类型。写死在这里而不是从 meta 推：
 # kb_schema 用散文描述类型约束，机器读不出来，硬编并在注释里指明出处更诚实。
 KB_REF_TYPES = {
@@ -390,6 +410,97 @@ def check_kb_case(item: dict, meta: dict, existing: dict, new_ids: dict,
                            f"actions.order 不连续：{orders}"))
 
 
+def check_semantic_lints(doc: dict, existing: dict, new_ids: dict, out: list) -> None:
+    """把历次审核反复做的判断沉淀成 lint。全部 warn，只提示复查。
+
+    这些替代不了语义审核，但能把最常犯的三类问题在几毫秒内标出来，
+    省掉一轮"生成 -> 审核 -> 打回 -> 重写"。
+    """
+    ents = {i["id"]: i for _s, _e, i in iter_items(doc)
+            if _s == "entities" and i.get("id")}
+
+    # 1. MTTR 语义与 may_cause 并存
+    for section, _entry, item in iter_items(doc):
+        if section != "relations" or item.get("type") != "may_cause":
+            continue
+        src = item.get("from")
+        text = " ".join(str(x or "") for x in (
+            (ents.get(src) or existing.get(src) or {}).get("description"),
+            item.get("note"),
+            ((ents.get(src) or existing.get(src) or {}).get("economic_hooks") or {})
+            .get("note")))
+        hit = [w for w in MTTR_WORDS if w in text]
+        if hit:
+            out.append(Finding("warn", "relations", item_key("relations", item),
+                               f"描述含 {hit[:2]} 等时长类措辞却用 may_cause——"
+                               "may_cause 只表示导致异常发生，不表示决定持续多久。"
+                               "确认这是成因而非 MTTR 解释项（同类问题曾被 reject）"))
+
+    # 2. model_prior 却写了需引用的具体断言
+    for section, _entry, item in iter_items(doc):
+        prov = item.get("provenance") or {}
+        if prov.get("source_type") != "model_prior":
+            continue
+        fields = [item.get("description"), item.get("note")]
+        if section == "kb_cases":
+            fields += [item.get("notes"),
+                       (item.get("impact") or {}).get("economic")]
+        for txt in fields:
+            m = CITE_PAT.search(str(txt or ""))
+            if m:
+                out.append(Finding("warn", section, item_key(section, item),
+                                   f"标 model_prior 却出现具体断言 {m.group(0)!r}——"
+                                   "标准号与量化阈值属需文献支撑的外部事实，"
+                                   "拿不到原文就不要写数值"))
+                break
+
+    # 3. economic_hooks / impact 里的量化承诺
+    for section, _entry, item in iter_items(doc):
+        texts = []
+        if section == "entities":
+            texts.append((item.get("economic_hooks") or {}).get("note"))
+        elif section == "kb_cases":
+            texts.append((item.get("impact") or {}).get("economic"))
+        for txt in texts:
+            m = QUANT_PAT.search(str(txt or ""))
+            if m:
+                out.append(Finding("warn", section, item_key(section, item),
+                                   f"经济影响里出现量化表述 {m.group(0)!r}——"
+                                   "经营模型层尚未落地，量化承诺没有兜底依据"))
+                break
+
+    # 4. kb_case 列了 cause/action 但图上没有对应边。
+    #    库内既有约定允许这样（12 个实例里 5 个如此），R014 也只查引用存在性，
+    #    所以只提示不阻断——但新增实例最好顺手把边补上。
+    rels = {f"{i.get('from')}|{i.get('type')}|{i.get('to')}"
+            for s, _e, i in iter_items(doc) if s == "relations"}
+    try:
+        live = {f"{r.get('from')}|{r.get('type')}|{r.get('to')}"
+                for r in C.load_relations()}
+    except Exception:                                      # noqa: BLE001
+        live = set()
+    for section, _entry, item in iter_items(doc):
+        if section != "kb_cases":
+            continue
+        an = item.get("anomaly_ref")
+        if not an:
+            continue
+        miss = []
+        for sub in item.get("possible_causes") or []:
+            c = (sub or {}).get("cause_ref")
+            if c and f"{c}|may_cause|{an}" not in rels | live:
+                miss.append(c)
+        for sub in item.get("actions") or []:
+            act = (sub or {}).get("action_ref")
+            if act and f"{an}|mitigated_by|{act}" not in rels | live:
+                miss.append(act)
+        if miss:
+            out.append(Finding("warn", "kb_cases", item_key(section, item),
+                               f"{len(miss)} 个 ref 在图上没有对应边（如 "
+                               f"{', '.join(miss[:3])}）。库内既有约定允许，"
+                               "但补齐后风险图谱回溯才完整"))
+
+
 def check_dup_names(new_entities: list[dict], existing: dict, out: list) -> None:
     """名称近似查重。只给候选、不下结论——是否真重复要模型判断语义。"""
     for item in new_entities:
@@ -426,6 +537,34 @@ def check_dup_names(new_entities: list[dict], existing: dict, out: list) -> None
             out.append(Finding("warn", "entities", key,
                                "名称接近已有同类实体，请确认是否语义重复："
                                + "；".join(uniq[:3])))
+
+
+def check_dup_hooks(new_entities: list[dict], existing: dict, out: list) -> None:
+    """affects 集合完全相同的同类实体。
+
+    比单纯名称相似更强的重复信号：上一轮被 reject 的
+    fab.action.rebalance_dispatch 与已有 skip_ahead 名称并不像，
+    但作用对象完全一致——机制重复靠名字查不出来。
+    """
+    for item in new_entities:
+        hooks = item.get("economic_hooks")
+        if not isinstance(hooks, dict):
+            continue
+        mine = frozenset(hooks.get("affects") or [])
+        if not mine:
+            continue
+        same = []
+        for eid, ent in existing.items():
+            if ent.get("type") != item.get("type"):
+                continue
+            eh = ent.get("economic_hooks")
+            if isinstance(eh, dict) and frozenset(eh.get("affects") or []) == mine:
+                same.append(f"{eid}（{ent.get('name_zh')}）")
+        if same:
+            out.append(Finding("warn", "entities", item_key("entities", item),
+                               f"economic_hooks.affects 与 {len(same)} 个同类实体完全相同"
+                               f"（{'；'.join(same[:3])}）。作用对象一致是比名称更强的"
+                               "重复信号，确认机制真的不同"))
 
 
 def check_internal_deps(doc: dict, out: list) -> None:
@@ -503,6 +642,8 @@ def precheck(path: Path, meta: dict, cfg: dict, existing: dict,
 
     check_derived(new_entities, meta, out)
     check_dup_names(new_entities, existing, out)
+    check_dup_hooks(new_entities, existing, out)
+    check_semantic_lints(doc, existing, new_ids, out)
     check_internal_deps(doc, out)
     return out
 
@@ -565,12 +706,12 @@ def main() -> int:
             print(f"          {f['msg']}")
     print("-" * 72)
     if n_err:
-        print(f"共 ERROR {n_err} | WARN {n_warn}。有 error 不应送审——"
-              "这些都是确定性规则，交给审核代理只会换来一次昂贵的 reject。")
+        print(f"共 ERROR {n_err} | WARN {n_warn}。有 error 不应落库——"
+              "这些都是确定性规则，改掉比事后回滚便宜得多。")
         return 1
-    print(f"共 ERROR 0 | WARN {n_warn}。确定性检查通过，可以送审。")
-    print("审核代理只需判断：provenance 标得该不该、概念是否语义重复、"
-          "may_cause 用得对不对、类比是否成立。")
+    print(f"共 ERROR 0 | WARN {n_warn}。确定性检查通过。")
+    print("剩下只需人判断：provenance 标得该不该、概念是否语义重复、"
+          "may_cause 用得对不对、建模层次是否恰当。上面的 warn 是复查线索。")
     return 0
 
 

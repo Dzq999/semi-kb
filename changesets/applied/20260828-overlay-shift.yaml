@@ -1,0 +1,314 @@
+# 变更提案 · 套刻偏移排查与处置知识
+changeset:
+  id: 20260828-overlay-shift
+  title: 补齐套刻偏移的对位类根因、背面沾污处置与排查 Playbook
+  created_at: "2026-08-28"
+  author: agent:kb-refresh
+  rationale: |
+    选题依据当场从 build/index.json 与 build/graph.json 重算（不复用上轮数字）：
+    实体 236，Anomaly 18，其中 14 个有 kb 实例、4 个没有。未覆盖项按度数排序：
+    fab.anomaly.overlay_shift（度数 8，severity high，fab）
+    ap.anomaly.missing_ball（6，medium，ap）
+    core.anomaly.equipment_down（4，high，core）
+    core.anomaly.quality_excursion（3，critical，core）
+
+    选 overlay_shift：未覆盖项里度数最高、severity high，且风险图谱已经接得很齐
+    （detected_at→overlay_measure、measured_by→overlay_error、blocks→dry_etch、
+    两条 mitigated_by 指向 photo_rework 与 recipe_adjust），但排查指过来之后
+    没有任何处置内容——正是 prompts/kb-refresh.md 说的"图上连得好、空洞最显眼"
+    那一类。
+
+    连带缺口（本轮真正要补的）：overlay_shift 现有 3 条入边分别来自
+    fab.param.overlay_offset（参数）、fab.cause.recipe_misload（配方误用）、
+    fab.cause.env_excursion（环境超限）。这三条都是外因，没有一条描述
+    **套刻本身的失效机理**——对位标记读取不良、晶圆背面/吸盘沾污导致的
+    平面度偏差、镜头热效应引起的场内漂移。缺了这三类，"套刻超规但配方没错、
+    环境也正常"就无从下手，而这恰恰是现场最常见的情形。
+
+    库内 15 条 fab cause 逐条查过，无一描述对位或吸盘平面度：
+    lens_contamination 管的是光路沾污导致成像质量下降（指向 CD/缺陷类异常），
+    reticle_stage_error 管的是伺服异常导致停机，reticle_haze 管光罩雾化。
+    与本轮三条的失效部位和观测量都不同。
+
+    provenance 说明：本轮 WebSearch 检索到若干直接相关来源，包括
+    Rudolph Technologies 关于背面颗粒沾污影响的技术报告、一件晶圆背面沾污
+    处理的美国专利（US9711419）、以及 ASML 关于场内子区域套刻控制的专利族。
+    但本环境出站 HTTPS 依然全部不可用（curl 与 Invoke-WebRequest 对
+    example.com 都报 schannel SEC_E_NO_CREDENTIALS），两个候选 PDF 一个
+    301 后拿到 0 字节、一个直接失败，PyMuPDF 虽已装好（1.26.5）却没有
+    文件可解析。按 kb-refresh.md 的要求：拿不到确切正文就标 model_prior，
+    不填未经核实的 web ref——check_refs.py 做的是真实 urlopen，这种 ref
+    在当前网络下必然探测失败，而且它伪装成可核查的证据，比标 model_prior 更糟。
+    候选线索写进 kb_case 的 notes，等网络恢复后再按 web 升级。
+
+    刻意不做的事：没有引入任何数值阈值（对位残差限值、颗粒尺寸门槛、
+    热漂移量）。这类数值必须有文献支撑，凭模型知识写出来看着像有据可查，
+    实际是编的——"拿不到数值就不要写数值"。
+
+    两条 mitigated_by 边（hold_lot、dispatch_field_service）是 precheck 的
+    图边 lint 提示后补的：kb_case 把它们列进 actions，但图上原先没有对应边，
+    风险图谱从异常回溯处置时会缺一段。库内既有约定允许这种不一致
+    （R014 只查引用存在性），但新增时顺手补齐成本极低。
+
+    审核方式：本轮起改为脚本 + 自审，不再调独立子代理（用户决定，理由是
+    子代理审核太慢）。确定性部分由 precheck.py 承担并已扩了三类 lint；
+    需要判断的部分由我在提案里逐条写明依据，verdict 标 self:kb-refresh，
+    诚实反映审核方与生成方是同一个。这比标成独立审核更可靠——
+    知道哪些结论没有第二双眼睛看过，才知道该重点复查什么。
+
+additions:
+  entities:
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.alignment_mark_damage
+        type: Cause
+        name_zh: 对位标记损伤/读取不良
+        name_en: Alignment Mark Damage & Poor Readability
+        domain: fab
+        description: >
+          晶圆对位标记被前层工艺（CMP 过抛、蚀刻、厚膜沉积）破坏或覆盖，
+          导致对位信号强度不足或重心判读偏移，机台按错误的基准曝光。
+          特征是同一片内对位残差异常但曝光成像质量正常，且问题随前层工艺
+          批次相关而非随曝光机台相关——换机台重曝仍复现是强判别信号。
+        economic_hooks:
+          affects: [yield, rework_rate, cycle_time]
+          note: 可返工层的损失是重工成本，不可返工层直接报废
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.wafer_backside_contamination
+        type: Cause
+        name_zh: 晶圆背面/吸盘沾污
+        name_en: Wafer Backside & Chuck Contamination
+        domain: fab
+        description: >
+          晶圆背面或曝光机吸盘表面附着颗粒，晶圆被真空吸附后局部抬升，
+          造成平面度偏差与离焦，同时在该处引入套刻偏移。
+          判别特征是偏移呈局部化的不规则分布（而非全片线性或旋转分量），
+          且同一吸盘上不同晶圆的偏移位置重复出现——指向吸盘而非晶圆。
+        economic_hooks:
+          affects: [yield, rework_rate, equipment_oee]
+          note: 吸盘清洗需停机，与继续生产之间存在权衡
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.cause.lens_heating_drift
+        type: Cause
+        name_zh: 镜头热效应场内漂移
+        name_en: Lens Heating Induced Intra-field Drift
+        domain: fab
+        description: >
+          高强度曝光使投影物镜局部升温，折射率与面形随曝光量累积变化，
+          引起场内（intra-field）套刻分量漂移。
+          与光路沾污的区别在于：热漂移随批次内曝光片数递进、停机冷却后自行恢复；
+          沾污是持续性的且伴随成像对比度下降。
+        economic_hooks:
+          affects: [yield, throughput]
+          note: 可用曝光节奏或场内补偿模型缓解，属可建模的系统性偏差
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/fab/entities/17-causes-actions.yaml
+      item:
+        id: fab.action.clean_chuck
+        type: Action
+        name_zh: 清洗曝光机吸盘
+        name_en: Clean Exposure Chuck
+        domain: fab
+        description: >
+          停机清洗曝光机晶圆吸盘并复测平面度，消除背面颗粒引起的局部抬升。
+          与已有的腔体清洗、光罩清洗不同：对象是承片吸盘，
+          验证方式是平面度与套刻复测，而非颗粒计数或成像质量。
+        economic_hooks:
+          affects: [equipment_oee, yield]
+          note: 短时计划停机换取套刻恢复，通常优于带病生产
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+  relations:
+    # 关系条目显式带 provenance：apply_changeset.py 读不到 provenance.confidence
+    # 时按 low 处理，会被 guards.min_confidence=medium 拦下。
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.alignment_mark_damage
+        type: may_cause
+        to: fab.anomaly.overlay_shift
+        note: 对位基准失准直接导致套刻偏移，换机台重曝仍复现
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.wafer_backside_contamination
+        type: may_cause
+        to: fab.anomaly.overlay_shift
+        note: 背面颗粒致局部抬升，偏移呈局部化不规则分布
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.lens_heating_drift
+        type: may_cause
+        to: fab.anomaly.overlay_shift
+        note: 场内分量随曝光量累积漂移，冷却后自行恢复
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.overlay_shift
+        type: mitigated_by
+        to: fab.action.clean_chuck
+        note: 背面沾污类偏移的针对性处置
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.cause.wafer_backside_contamination
+        type: may_cause
+        to: fab.anomaly.cd_out_of_spec
+        note: 局部抬升同时引入离焦，CD 与套刻常同时超规
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    # 下面两条由 precheck 的图边 lint 提示补上：kb_case 把它们列进 actions，
+    # 但图上原先没有对应 mitigated_by 边，风险图谱回溯会缺一段。
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.overlay_shift
+        type: mitigated_by
+        to: fab.action.hold_lot
+        note: 根因未明前先扣留，避免在有问题的机台上重复报废
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/fab/relations/21-risk-graph.yaml
+      item:
+        from: fab.anomaly.overlay_shift
+        type: mitigated_by
+        to: fab.action.dispatch_field_service
+        note: 对位系统或镜头热补偿异常且厂内手段无效时报修
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+
+  kb_cases:
+    - target_file: kb/fab/photo-etch-cases.yaml
+      item:
+        id: kb.fab.overlay_shift_triage
+        domain: fab
+        title: 套刻偏移排查与处置
+        anomaly_ref: fab.anomaly.overlay_shift
+        detected_at_ref: fab.process.overlay_measure
+        severity: high
+        symptoms:
+          - 套刻量测显示对位误差超出规格，批次在量测站被拦下
+          - 偏移可能表现为全片系统性分量，或场内分量，或局部不规则分布
+          - 下游蚀刻被阻塞，等待处置决定
+        possible_causes:
+          - cause_ref: fab.cause.recipe_misload
+            likelihood: high
+            discriminator: >
+              先查配方与层别是否匹配——这是最快能排除、代价也最低的一项。
+              配方误用通常表现为整片大幅规律性偏移，且同机台同配方的
+              其他批次同样异常。
+          - cause_ref: fab.cause.alignment_mark_damage
+            likelihood: high
+            discriminator: >
+              对位残差异常但曝光成像质量正常。关键判别：换机台重曝仍复现，
+              且问题跟着前层工艺批次走而非跟着曝光机台走。
+          - cause_ref: fab.cause.wafer_backside_contamination
+            likelihood: medium
+            discriminator: >
+              偏移呈局部化不规则分布，而非全片线性或旋转分量；
+              同一吸盘上不同晶圆的偏移位置重复出现。常伴随离焦与 CD 异常。
+          - cause_ref: fab.cause.lens_heating_drift
+            likelihood: medium
+            discriminator: >
+              场内分量随批次内曝光片数递进，停机冷却后自行恢复。
+              与光路沾污的区别是后者持续存在且伴随对比度下降。
+          - cause_ref: fab.cause.env_excursion
+            likelihood: low
+            discriminator: >
+              温湿度或振动记录越限，且同期多台机台、多产品同时异常。
+              单机台单产品异常基本可排除环境因素。
+          - cause_ref: fab.param.overlay_offset
+            likelihood: low
+            discriminator: >
+              查 run-to-run 补偿量是否被异常更新——补偿模型吃进一个坏点后
+              可能把正常批次也带偏，此时机台与晶圆都没问题。
+        detection:
+          - metric_ref: fab.metric.overlay_error
+            signal: >
+              直接判定量。务必看偏移的空间分布而非只看单值超规：
+              全片线性、旋转、场内、局部四种分布分别指向不同根因，
+              只看超没超规会丢掉最关键的判别信息。
+          - metric_ref: fab.metric.cd_uniformity
+            signal: >
+              CD 与套刻同时异常时更可能是背面沾污引起的离焦，
+              可用于把平面度类根因与纯对位类根因分开
+          - metric_ref: core.metric.yield
+            signal: 套刻超规若漏到后续层，最终以良率损失体现
+        actions:
+          - action_ref: fab.action.hold_lot
+            order: 1
+            condition: >
+              先扣留，不要急着重工。套刻偏移的成因决定了该重工还是该修机台，
+              盲目重工会在同一台有问题的机台上再废一次。
+          - action_ref: fab.action.recipe_adjust
+            order: 2
+            condition: >
+              确认为配方误用或补偿量异常时修正配方。
+              若是补偿模型被坏点带偏，需同时清理该点再让模型收敛。
+          - action_ref: fab.action.clean_chuck
+            order: 3
+            condition: >
+              判定为背面/吸盘沾污时停机清洗并复测平面度。
+              清洗后要复测套刻确认恢复，否则可能是晶圆背面而非吸盘的问题。
+          - action_ref: fab.action.photo_rework
+            order: 4
+            condition: >
+              仅在该层可返工且根因已消除时重工。
+              根因未除就重工等于把良品也拖进去。
+          - action_ref: fab.action.dispatch_field_service
+            order: 5
+            condition: >
+              对位系统或镜头热补偿模型异常且厂内手段无效时报修。
+              这类问题通常需要原厂调机，不属厂内可自行恢复的范畴。
+        impact:
+          blocked_processes: [fab.process.dry_etch]
+          economic: >
+            套刻偏移的代价高度依赖发现时机：在量测站拦下只是重工或报废单批，
+            漏到后续层则可能整批失效且已投入更多工序成本。
+            可返工层与不可返工层的处置逻辑完全不同，前者权衡重工成本，
+            后者直接是报废。若根因在机台侧，还要叠加该机台后续批次的
+            连带风险——这也是不建议根因未明就先重工的原因。
+        tags: [光刻, 套刻, 对位, 排查]
+        notes: >
+          本条 provenance 为 model_prior。本轮 WebSearch 检索到若干直接相关来源，
+          但本环境出站 HTTPS 不可用（schannel SEC_E_NO_CREDENTIALS），
+          两个候选 PDF 均未能取回正文（一个 301 后 0 字节、一个直接失败），
+          PyMuPDF 1.26.5 虽可用但无文件可解析，故按规范不填未经核实的 web ref。
+          候选线索留待网络恢复后核实并升级：
+          Rudolph Technologies《The Impact of Backside Particle Contamination》
+          （背面颗粒沾污对平面度与套刻的影响，可支撑
+          wafer_backside_contamination 的机理与判别）；
+          美国专利 US9711419（晶圆背面沾污的处理方法）；
+          ASML 场内子区域套刻控制专利族（可支撑 lens_heating_drift 的
+          场内分量建模与补偿思路）。
+          核实要点：URL 可达不等于正文支持该说法；且本条刻意未写任何数值阈值，
+          升级来源时若要补入残差限值或颗粒尺寸门槛，必须以原文表格为准。
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null

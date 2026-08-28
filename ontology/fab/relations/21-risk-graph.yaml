@@ -146,3 +146,73 @@ relations:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - from: fab.cause.alignment_mark_damage
+    type: may_cause
+    to: fab.anomaly.overlay_shift
+    note: 对位基准失准直接导致套刻偏移，换机台重曝仍复现
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.wafer_backside_contamination
+    type: may_cause
+    to: fab.anomaly.overlay_shift
+    note: 背面颗粒致局部抬升，偏移呈局部化不规则分布
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.lens_heating_drift
+    type: may_cause
+    to: fab.anomaly.overlay_shift
+    note: 场内分量随曝光量累积漂移，冷却后自行恢复
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.overlay_shift
+    type: mitigated_by
+    to: fab.action.clean_chuck
+    note: 背面沾污类偏移的针对性处置
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.wafer_backside_contamination
+    type: may_cause
+    to: fab.anomaly.cd_out_of_spec
+    note: 局部抬升同时引入离焦，CD 与套刻常同时超规
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.overlay_shift
+    type: mitigated_by
+    to: fab.action.hold_lot
+    note: 根因未明前先扣留，避免在有问题的机台上重复报废
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.overlay_shift
+    type: mitigated_by
+    to: fab.action.dispatch_field_service
+    note: 对位系统或镜头热补偿异常且厂内手段无效时报修
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

@@ -1,0 +1,129 @@
+changeset: 20260828-overlay-shift.yaml
+# 自审。审核方与生成方是同一个上下文，这里如实标出——假装独立审过比自审更糟。
+# 确定性部分由 precheck.py 判定（ERROR 0 | WARN 0，含新扩的三类 lint）；
+# 下面只记需要判断的部分，每条写清我实际查了什么。
+# 已知局限：没有第二双眼睛。风险最高的是"我认为不重复"这类判断——
+# 生成时的理由和审核时的理由来自同一处。故对每条重复性判断都实读了
+# 被比较实体的 description 与 economic_hooks，而不是凭提案里的自述。
+verifier: self:kb-refresh
+verified_at: "2026-08-28 10:24"
+items:
+  - key: "fab.cause.alignment_mark_damage"
+    section: entities
+    verdict: pass
+    reason: >-
+      实读 17-causes-actions.yaml 全部 15 条 fab cause，无一描述对位标记或对位信号，
+      与 lens_contamination（固定位置 CD 偏移）、reticle_haze（光罩雾化）的失效部位
+      与观测量都不同。model_prior 恰当：描述是定性失效机理与判别经验，
+      未出现标准号或数值阈值。判别信号"换机台重曝仍复现、问题跟前层工艺批次走"
+      在工程上成立，且能与机台侧根因区分开。
+
+  - key: "fab.cause.wafer_backside_contamination"
+    section: entities
+    verdict: pass
+    reason: >-
+      与 env_excursion 不重复：后者是跨工序同步出现的环境因素（hooks yield/scrap_rate），
+      本条是单机台吸盘局部沾污（hooks yield/rework_rate/equipment_oee），
+      判别特征"同一吸盘上不同晶圆偏移位置重复出现"正是用来把两者分开的。
+      model_prior 的处理正确且已实测验证：本环境出站 HTTPS 全不可用
+      （curl 对 example.com 报 schannel SEC_E_NO_CREDENTIALS），
+      两个候选 PDF 一个 301 后 0 字节、一个直接失败，PyMuPDF 1.26.5 可用但无文件可解析。
+      检索到的 Rudolph 技术报告与 US9711419 只作线索写进 notes，未填 web ref。
+
+  - key: "fab.cause.lens_heating_drift"
+    section: entities
+    verdict: pass
+    reason: >-
+      这是本轮最需要判断的一条，实读 lens_contamination 原文后确认不重复：
+      后者描述"光学元件沾污衰减有效照度并产生局部像差，表现为固定位置 CD 偏移"，
+      指向的是 CD 类异常且位置固定；本条是随曝光量累积的场内套刻分量漂移、
+      停机冷却后自行恢复。观测量（overlay 场内分量 vs CD）与时间行为
+      （可逆递进 vs 持续存在）都不同。未写任何数值阈值，故 model_prior 成立。
+
+  - key: "fab.action.clean_chuck"
+    section: entities
+    verdict: pass
+    reason: >-
+      实读三条已有清洗类 Action：chamber_clean 对象是腔体累积物（hooks
+      equipment_oee/throughput）、reticle_clean 对象是光罩（yield/capacity_commit）、
+      replace_consumable 对象是寿命件（cost_per_unit/yield/equipment_oee）。
+      本条对象是承片吸盘、验证方式是平面度与套刻复测，三者的对象与验证手段均不同，
+      affects 集合也不与任何一条完全相同（precheck 的 affects 重复 lint 未报）。
+      与上一轮被 reject 的 rebalance_dispatch 情形不同：那条的作用对象与
+      已有 Action 完全重合，本条不是。
+
+  - key: "fab.cause.alignment_mark_damage|may_cause|fab.anomaly.overlay_shift"
+    section: relations
+    verdict: pass
+    reason: >-
+      may_cause 语义成立：对位基准失准直接导致套刻偏移发生，不是只影响排查难度
+      或修复时长。precheck 的 MTTR 措辞 lint 未在本条命中。
+      note 与 kb_case 里该 cause 的 discriminator 一致（都是"换机台重曝仍复现"）。
+
+  - key: "fab.cause.wafer_backside_contamination|may_cause|fab.anomaly.overlay_shift"
+    section: relations
+    verdict: pass
+    reason: >-
+      may_cause 成立：局部抬升直接引入偏移。note"偏移呈局部化不规则分布"与
+      kb_case detection 里"全片线性/旋转/场内/局部四种分布分别指向不同根因"
+      相互呼应，不矛盾——后者是前者的判别框架。
+
+  - key: "fab.cause.lens_heating_drift|may_cause|fab.anomaly.overlay_shift"
+    section: relations
+    verdict: pass
+    reason: >-
+      核心问题是该建 Cause 还是归入 fab.param.overlay_offset 的补偿机制。
+      实读 overlay_offset 原文："Scanner 逐批对位补正值，由前批量测经 APC 回馈生成，
+      补正模型失配时会出现补正越修越偏"——它是补偿量这个可调参数，
+      失效模式是模型失配；镜头热效应是物理成因，即使补偿模型完全正常也会发生。
+      两者是"被补偿的物理量"与"补偿手段"的关系，不是同一件事，故建 Cause 正确。
+      kb_case 已把两者列为不同 possible_causes 并给了各自判别。
+
+  - key: "fab.anomaly.overlay_shift|mitigated_by|fab.action.clean_chuck"
+    section: relations
+    verdict: pass
+    reason: >-
+      方向与语义正确（Anomaly -> Action）。与已有两条 mitigated_by 不冲突：
+      photo_rework 是善后重工、recipe_adjust 是配方侧修正、本条是机台侧物理清洗，
+      三者处于不同处置层次，kb_case 的 actions.order 也按这个层次排（2/3/4）。
+
+  - key: "fab.cause.wafer_backside_contamination|may_cause|fab.anomaly.cd_out_of_spec"
+    section: relations
+    verdict: pass
+    reason: >-
+      一个 Cause 指向两个异常在库内有先例（如 env_excursion 多路指向）。
+      因果成立：局部抬升同时造成离焦（CD 超规）与套刻偏移，这也是 kb_case 里
+      "CD 与套刻同时异常时更可能是背面沾污"这条判别的依据。
+      查 21-risk-graph.yaml 确认与 cd_out_of_spec 已有入边不重复。
+
+  - key: "fab.anomaly.overlay_shift|mitigated_by|fab.action.hold_lot"
+    section: relations
+    verdict: pass
+    reason: >-
+      precheck 的图边 lint 提示后补的：kb_case 把 hold_lot 列为 order 1，
+      但图上原先没有对应边，风险图谱从异常回溯处置时会缺这一段。
+      语义与方向正确，且"根因未明前先扣留"是该 Playbook 的首要动作。
+
+  - key: "fab.anomaly.overlay_shift|mitigated_by|fab.action.dispatch_field_service"
+    section: relations
+    verdict: pass
+    reason: >-
+      同上，由 lint 提示补齐。对位系统或镜头热补偿模型异常属厂内手段无效的情形，
+      报修是合理终点动作（kb_case order 5）。
+
+  - key: "kb.fab.overlay_shift_triage"
+    section: kb_cases
+    verdict: pass
+    reason: >-
+      6 条 possible_causes 的 discriminator 逐条检查可互相区分，且覆盖了
+      "配方/对位/平面度/热效应/环境/补偿模型"六个不同方向；likelihood 排序
+      把最快能排除、代价最低的 recipe_misload 放在 high 是对的。
+      actions.order 的工程逻辑成立：先扣留再判因，避免在有问题的机台上重复报废——
+      这也是 impact.economic 里强调"不建议根因未明就先重工"的原因。
+      detection 三条均可观测；"看偏移的空间分布而非只看单值超规"是本条最有价值的
+      判断，四种分布与四类根因的对应关系在 possible_causes 里逐条落实了。
+      impact.economic 未做任何量化承诺（precheck 的量化 lint 未命中）。
+      刻意不写数值阈值：本环境取不到原文，写了就是伪装成有据可查的编造。
+      遗留：lens_contamination 未列入 possible_causes 清单。它指向 CD 类异常
+      而非套刻，本轮不列是有意的，但若日后发现光路沾污也会引入套刻分量，
+      应补进来——记在此处以便复查。

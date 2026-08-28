@@ -258,3 +258,84 @@ entities:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - id: fab.cause.alignment_mark_damage
+    type: Cause
+    name_zh: 对位标记损伤/读取不良
+    name_en: Alignment Mark Damage & Poor Readability
+    domain: fab
+    description: '晶圆对位标记被前层工艺（CMP 过抛、蚀刻、厚膜沉积）破坏或覆盖， 导致对位信号强度不足或重心判读偏移，机台按错误的基准曝光。 特征是同一片内对位残差异常但曝光成像质量正常，且问题随前层工艺
+      批次相关而非随曝光机台相关——换机台重曝仍复现是强判别信号。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      - cycle_time
+      note: 可返工层的损失是重工成本，不可返工层直接报废
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.cause.wafer_backside_contamination
+    type: Cause
+    name_zh: 晶圆背面/吸盘沾污
+    name_en: Wafer Backside & Chuck Contamination
+    domain: fab
+    description: '晶圆背面或曝光机吸盘表面附着颗粒，晶圆被真空吸附后局部抬升， 造成平面度偏差与离焦，同时在该处引入套刻偏移。 判别特征是偏移呈局部化的不规则分布（而非全片线性或旋转分量），
+      且同一吸盘上不同晶圆的偏移位置重复出现——指向吸盘而非晶圆。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      - equipment_oee
+      note: 吸盘清洗需停机，与继续生产之间存在权衡
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.cause.lens_heating_drift
+    type: Cause
+    name_zh: 镜头热效应场内漂移
+    name_en: Lens Heating Induced Intra-field Drift
+    domain: fab
+    description: '高强度曝光使投影物镜局部升温，折射率与面形随曝光量累积变化， 引起场内（intra-field）套刻分量漂移。 与光路沾污的区别在于：热漂移随批次内曝光片数递进、停机冷却后自行恢复；
+      沾污是持续性的且伴随成像对比度下降。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - throughput
+      note: 可用曝光节奏或场内补偿模型缓解，属可建模的系统性偏差
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.action.clean_chuck
+    type: Action
+    name_zh: 清洗曝光机吸盘
+    name_en: Clean Exposure Chuck
+    domain: fab
+    description: '停机清洗曝光机晶圆吸盘并复测平面度，消除背面颗粒引起的局部抬升。 与已有的腔体清洗、光罩清洗不同：对象是承片吸盘， 验证方式是平面度与套刻复测，而非颗粒计数或成像质量。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - yield
+      note: 短时计划停机换取套刻恢复，通常优于带病生产
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

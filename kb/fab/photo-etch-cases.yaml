@@ -120,3 +120,106 @@ cases:
         残留若被后续金属层覆盖固化则完全不可挽回，且在 WAT 才暴露为短路，
         届时前段投入已全部沉没。此处的拦截价值远高于处置成本。
     tags: [蚀刻, 残留, 排查]
+  - id: kb.fab.overlay_shift_triage
+    domain: fab
+    title: 套刻偏移排查与处置
+    anomaly_ref: fab.anomaly.overlay_shift
+    detected_at_ref: fab.process.overlay_measure
+    severity: high
+    symptoms:
+    - 套刻量测显示对位误差超出规格，批次在量测站被拦下
+    - 偏移可能表现为全片系统性分量，或场内分量，或局部不规则分布
+    - 下游蚀刻被阻塞，等待处置决定
+    possible_causes:
+    - cause_ref: fab.cause.recipe_misload
+      likelihood: high
+      discriminator: '先查配方与层别是否匹配——这是最快能排除、代价也最低的一项。 配方误用通常表现为整片大幅规律性偏移，且同机台同配方的 其他批次同样异常。
+
+        '
+    - cause_ref: fab.cause.alignment_mark_damage
+      likelihood: high
+      discriminator: '对位残差异常但曝光成像质量正常。关键判别：换机台重曝仍复现， 且问题跟着前层工艺批次走而非跟着曝光机台走。
+
+        '
+    - cause_ref: fab.cause.wafer_backside_contamination
+      likelihood: medium
+      discriminator: '偏移呈局部化不规则分布，而非全片线性或旋转分量； 同一吸盘上不同晶圆的偏移位置重复出现。常伴随离焦与 CD 异常。
+
+        '
+    - cause_ref: fab.cause.lens_heating_drift
+      likelihood: medium
+      discriminator: '场内分量随批次内曝光片数递进，停机冷却后自行恢复。 与光路沾污的区别是后者持续存在且伴随对比度下降。
+
+        '
+    - cause_ref: fab.cause.env_excursion
+      likelihood: low
+      discriminator: '温湿度或振动记录越限，且同期多台机台、多产品同时异常。 单机台单产品异常基本可排除环境因素。
+
+        '
+    - cause_ref: fab.param.overlay_offset
+      likelihood: low
+      discriminator: '查 run-to-run 补偿量是否被异常更新——补偿模型吃进一个坏点后 可能把正常批次也带偏，此时机台与晶圆都没问题。
+
+        '
+    detection:
+    - metric_ref: fab.metric.overlay_error
+      signal: '直接判定量。务必看偏移的空间分布而非只看单值超规： 全片线性、旋转、场内、局部四种分布分别指向不同根因， 只看超没超规会丢掉最关键的判别信息。
+
+        '
+    - metric_ref: fab.metric.cd_uniformity
+      signal: 'CD 与套刻同时异常时更可能是背面沾污引起的离焦， 可用于把平面度类根因与纯对位类根因分开
+
+        '
+    - metric_ref: core.metric.yield
+      signal: 套刻超规若漏到后续层，最终以良率损失体现
+    actions:
+    - action_ref: fab.action.hold_lot
+      order: 1
+      condition: '先扣留，不要急着重工。套刻偏移的成因决定了该重工还是该修机台， 盲目重工会在同一台有问题的机台上再废一次。
+
+        '
+    - action_ref: fab.action.recipe_adjust
+      order: 2
+      condition: '确认为配方误用或补偿量异常时修正配方。 若是补偿模型被坏点带偏，需同时清理该点再让模型收敛。
+
+        '
+    - action_ref: fab.action.clean_chuck
+      order: 3
+      condition: '判定为背面/吸盘沾污时停机清洗并复测平面度。 清洗后要复测套刻确认恢复，否则可能是晶圆背面而非吸盘的问题。
+
+        '
+    - action_ref: fab.action.photo_rework
+      order: 4
+      condition: '仅在该层可返工且根因已消除时重工。 根因未除就重工等于把良品也拖进去。
+
+        '
+    - action_ref: fab.action.dispatch_field_service
+      order: 5
+      condition: '对位系统或镜头热补偿模型异常且厂内手段无效时报修。 这类问题通常需要原厂调机，不属厂内可自行恢复的范畴。
+
+        '
+    impact:
+      blocked_processes:
+      - fab.process.dry_etch
+      economic: '套刻偏移的代价高度依赖发现时机：在量测站拦下只是重工或报废单批， 漏到后续层则可能整批失效且已投入更多工序成本。 可返工层与不可返工层的处置逻辑完全不同，前者权衡重工成本，
+        后者直接是报废。若根因在机台侧，还要叠加该机台后续批次的 连带风险——这也是不建议根因未明就先重工的原因。
+
+        '
+    tags:
+    - 光刻
+    - 套刻
+    - 对位
+    - 排查
+    notes: '本条 provenance 为 model_prior。本轮 WebSearch 检索到若干直接相关来源， 但本环境出站 HTTPS 不可用（schannel SEC_E_NO_CREDENTIALS），
+      两个候选 PDF 均未能取回正文（一个 301 后 0 字节、一个直接失败）， PyMuPDF 1.26.5 虽可用但无文件可解析，故按规范不填未经核实的 web ref。 候选线索留待网络恢复后核实并升级：
+      Rudolph Technologies《The Impact of Backside Particle Contamination》 （背面颗粒沾污对平面度与套刻的影响，可支撑 wafer_backside_contamination
+      的机理与判别）； 美国专利 US9711419（晶圆背面沾污的处理方法）； ASML 场内子区域套刻控制专利族（可支撑 lens_heating_drift 的 场内分量建模与补偿思路）。 核实要点：URL
+      可达不等于正文支持该说法；且本条刻意未写任何数值阈值， 升级来源时若要补入残差限值或颗粒尺寸门槛，必须以原文表格为准。
+
+      '
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
