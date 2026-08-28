@@ -32,11 +32,15 @@ CHANGE_KIND = {"entities": "entities", "relations": "relations", "kb_cases": "in
 
 
 def load_verdict(path: Path) -> tuple[dict, str]:
-    """读取提案对应的 subAgent 裁决文件。返回 ({条目键: 裁决}, 整体说明)。
+    """读取提案对应的裁决文件。返回 ({条目键: 裁决}, 整体说明)。
 
-    裁决由独立子代理写盘（见 scripts/verify_changeset.py 生成的审核任务），
-    本脚本只消费结论。故意不在这里做任何"像审核"的判断——审核要的是
-    独立取证，同一段上下文里边写边审等于自己给自己盖章。
+    本脚本只消费结论，故意不在这里做任何"像审核"的判断：apply 必须保持
+    确定性（同样的提案 + 同样的 verdict 得到同样的结果，可离线复跑、可进 CI），
+    一旦内嵌判断就做不到了。
+
+    verdict 由谁写与本脚本无关，只要格式对得上。verifier 字段如实标明是谁审的
+    （self:* 表示自审、无第二双眼睛），本脚本不校验也无法校验它的真实性——
+    要紧的是标得诚实，假装独立审过比自审更糟。
     """
     vp = C.ROOT / "changesets" / "verdicts" / f"{path.stem}.verdict.yaml"
     if not vp.exists():

@@ -1,37 +1,37 @@
-"""提案送审前的确定性检查。把能算的算掉，只把判断题留给审核代理。
+"""提案落库前的形状检查。只查 validate.py 看不到的东西。
 
-    python scripts/precheck.py                                    # 检查 pending/ 下全部
-    python scripts/precheck.py changesets/pending/xxx.yaml         # 检查单份
+    python scripts/precheck.py                              # 查 pending/ 下全部
+    python scripts/precheck.py changesets/pending/x.yaml     # 查单份
     python scripts/precheck.py --json
 
-退出码：0 无 error｜1 有 error（不应送审）｜2 用法/文件错误
+退出码：0 无 error｜1 有 error（不应落库）｜2 用法/文件错误
 
-为什么要有这一层：
+## 为什么这个脚本很短
 
-  首轮实跑一份 13 条的提案被审核代理全数 reject，事后归类死因只有三类——
-  5 条是同一个机械性格式错（实体写了 equipment 字段，派生出的 belongs_to
-  指向 Cause/Action，违反白名单）被复制了 5 次；5 条是端点被拒后的连带拒绝，
-  零信息量；真正需要判断力的只有 2 条。
+它曾经是 719 行，把 validate.py 的 R001-R011、R014 在提案结构上重写了一遍。
+那是重复：apply_changeset.py 的合并是原子的（追加 -> 立即跑 validate ->
+失败则从备份回滚），所以任何 validate 能查的规则，落库时一定会被查到，
+提案里的字段级错误最坏结果是"合并后校验失败并自动回滚"，代价约 1 秒。
 
-  用一个慢且不确定的模型去反复发现同一条确定性规则，是把算术题当作文写：
-  贵、慢、还可能漏。这些检查移到脚本里以后，生成端当场就能看到错误并改掉，
-  审核代理只面对真正的判断题（provenance 标得该不该、概念是否语义重复、
-  may_cause 用得对不对、类比是否成立）。
+花几百行去提前 1 秒发现同一件事，换来的是两份实现各自漂移的风险——
+同一条规则改了 validate 忘了改 precheck，就会出现"提案说没问题、落库说有问题"
+或者更糟的反向。所以那部分全删了。
 
-  拒绝率会因此下降，但不是靠放松标准——是错误在更早、更便宜的环节被挡掉了。
+留下的只有一类：**validate.py 结构上不可能看到的东西**。
 
-与既有脚本的分工：
+  顶层键写错     apply_changeset 找不到 target_file 就打印一行"跳过"然后继续，
+                 结论是"自动放行 0 条"，**退出码 0**。定时任务只看退出码会
+                 以为成功，实际什么都没合并。这是全链唯一能静默骗过自动化的
+                 失败模式，validate 看的是已落库的库、根本不会被调用。
+  提案内部依赖   同一份提案里 kb_case 引用本提案新增的实体，落库顺序错了会
+                 产生瞬时悬空引用。validate 只看最终状态，看不到顺序。
+  三类判断线索   下面 LINTS 那几条，都是历次审核真实抓到过的模式，
+                 用正则能提前标出来。只报 warn，不阻断。
 
-  validate.py        管已落库的全库一致性，跑的是合并之后
-  precheck.py        管未落库的提案，跑的是送审之前
-  verify_changeset.py 管 verdict 的配套齐全，不判断内容对错
+派生关系合法性已经移进 validate.py 的 check_derived()——那条规则的正确位置
+就是全库校验，不是提案预检。
 
-  刻意补上了 validate.py 的一个盲区：validate.py 的 check_relations() 只吃
-  显式关系，派生关系不进类型校验，而 build_index.py 是 relations + derived
-  一起入图。也就是说非法派生边不报错却会静默进图。本脚本对提案新增实体做
-  派生展开并逐条验证白名单，就是补这个洞。
-
-本脚本只读、不写、不改提案，可离线复跑。
+本脚本只读，可离线复跑。
 """
 from __future__ import annotations
 
@@ -44,44 +44,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
 
-CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
 SECTIONS = ("entities", "relations", "kb_cases")
 
-# 以下三组词表把历次审核里模型反复做的判断沉淀成确定性 lint。
-# 都只报 warn：它们是"值得看一眼"的信号，不是铁定违规，
-# 判成 error 会把正当写法也拦住。
+# 三类 lint。都只报 warn：是"值得看一眼"的线索，不是铁定违规。
+# 判成 error 会把正当写法也拦住，而误报会让人学会忽略输出。
+#
+# 每条都对应一次真实的审核发现，没有凭想象加的规则：
 
-# MTTR 语义。上一轮 fab.cause.spare_part_shortage 因自述"不引发停机，
-# 但决定停机持续多久"却用 may_cause 指向异常而被 reject——它影响修复时长，
-# 不决定异常是否发生。这类措辞与 may_cause 并存就该复查。
-MTTR_WORDS = ("持续多久", "持续时长", "修复时长", "停机时长", "多久才能",
-              "恢复时间", "维修时长", "mttr", "MTTR")
+# 上一轮 fab.cause.spare_part_shortage 自述"不引发停机，但决定停机持续多久"
+# 却用 may_cause 指向异常——它影响 MTTR，不决定异常是否发生。已被 reject。
+MTTR_WORDS = ("持续多久", "持续时长", "修复时长", "停机时长",
+              "恢复时间", "维修时长", "MTTR")
 
-# 需要文献支撑的具体断言。标 model_prior 却写了标准号或量化阈值，
-# 是"看起来有据可查、实际是编的"——比标 model_prior 更糟。
+# 标 model_prior 却写标准号或量化阈值，是"看起来有据可查、实际是编的"，
+# 比老实标 model_prior 更糟——它伪装成了可核查的证据。
 CITE_PAT = re.compile(
     r"(SEMI\s*[A-Z]\d+|JEDEC|JESD\d+|J-STD-\d+|IPC[\s/-]|ISO\s*\d+|"
-    r"ASTM\s*[A-Z]?\d+|\d+\s*(nm|µm|um|μm|ppm|ppb|kPa|MPa|°C|℃|小时|分钟)\b|"
-    r"\d+\s*%)", re.IGNORECASE)
-
-# 经济钩子里的量化承诺。没有仿真引擎兜底时，写死数字等于凭空承诺。
-QUANT_PAT = re.compile(r"(\d+\s*(倍|成|%)|提升\s*\d|降低\s*\d|节省\s*\d)")
-
-# kb_case 里各 ref 字段期望的目标实体类型。写死在这里而不是从 meta 推：
-# kb_schema 用散文描述类型约束，机器读不出来，硬编并在注释里指明出处更诚实。
-KB_REF_TYPES = {
-    "anomaly_ref": ["Anomaly"],
-    "detected_at_ref": ["Process"],
-    "cause_ref": ["Cause", "Parameter", "Process", "Anomaly", "State"],
-    "metric_ref": ["Metric"],
-    "action_ref": ["Action"],
-}
+    r"\d+\s*(nm|µm|um|μm|ppm|kPa|MPa|°C|℃)\b)", re.IGNORECASE)
 
 
 class Finding:
     __slots__ = ("level", "section", "key", "msg")
 
-    def __init__(self, level: str, section: str, key: str, msg: str):
+    def __init__(self, level: str, section: str, key: str, msg: str) -> None:
         self.level, self.section, self.key, self.msg = level, section, key, msg
 
     def as_dict(self) -> dict:
@@ -89,629 +74,218 @@ class Finding:
                 "key": self.key, "msg": self.msg}
 
 
-def norm_name(text: str) -> str:
-    return re.sub(r"[\s\-_/（）()、,，.。]+", "", str(text or "")).lower()
-
-
-def bigrams(text: str) -> set[str]:
-    s = norm_name(text)
-    return {s[i:i + 2] for i in range(len(s) - 1)} or ({s} if s else set())
-
-
 def item_key(section: str, item: dict) -> str:
-    """与 apply_changeset.item_key / verify_changeset 保持一致，否则对不上账。"""
     if section == "relations":
         return f"{item.get('from')}|{item.get('type')}|{item.get('to')}"
-    return str(item.get("id") or item.get("title") or "")
+    return str(item.get("id") or "?")
 
 
 def iter_items(doc: dict):
-    additions = doc.get("additions") or {}
+    """遍历提案条目，产出 (section, entry, item)。"""
+    add = doc.get("additions")
+    if not isinstance(add, dict):
+        return
     for section in SECTIONS:
-        for entry in additions.get(section) or []:
-            entry = entry or {}
-            yield section, entry, (entry.get("item") or {})
+        for entry in add.get(section) or []:
+            if isinstance(entry, dict) and isinstance(entry.get("item"), dict):
+                yield section, entry, entry["item"]
 
 
-# ---------- 各项检查 ----------
+def check_envelope(doc: dict, path: Path, out: list[Finding]) -> bool:
+    """顶层信封。返回 False 表示结构错到没法继续查。
 
-def check_envelope(doc: dict, path: Path, out: list) -> None:
-    """顶层键名。写错时 apply_changeset 静默跳过并以退出码 0 报成功——
-    这是整条链路唯一能骗过自动化的失败模式，必须最先拦。"""
-    if not isinstance(doc.get("changeset"), dict):
+    这是本脚本存在的首要理由：键名写错不会报错，apply_changeset 会静默
+    跳过并以退出码 0 报成功。
+    """
+    if not isinstance(doc, dict):
+        out.append(Finding("error", "-", path.name, "根节点不是映射"))
+        return False
+    if "changeset" not in doc:
+        wrong = [k for k in ("meta", "changset", "change_set", "info") if k in doc]
+        hint = f"（发现 {wrong[0]!r}，应为 changeset）" if wrong else ""
         out.append(Finding("error", "-", path.name,
-                           "顶层缺 changeset: 段（写成 meta: 不会报错但 apply 会静默跳过，"
-                           "结论显示“自动放行 0 条”且退出码 0）"))
-    else:
-        head = doc["changeset"]
-        for f in ("id", "title", "created_at", "author", "rationale"):
-            if not head.get(f):
-                out.append(Finding("warn", "-", path.name, f"changeset 段缺 {f}"))
-        if head.get("id") and head["id"] != path.stem:
-            out.append(Finding("warn", "-", path.name,
-                               f"changeset.id={head['id']} 与文件名 {path.stem} 不一致，"
-                               "verdict 按文件名定位，容易对错账"))
+                           f"缺顶层键 changeset:{hint}。apply_changeset 会静默"
+                           "跳过并以退出码 0 报成功——这是唯一能骗过定时任务的失败模式"))
+        return False
     if not isinstance(doc.get("additions"), dict):
-        out.append(Finding("error", "-", path.name, "缺 additions: 段"))
-        return
-    if not any((doc["additions"].get(s) or []) for s in SECTIONS):
-        out.append(Finding("error", "-", path.name, "additions 下没有任何新增条目"))
-    for bad in set(doc["additions"]) - set(SECTIONS):
-        out.append(Finding("warn", "-", path.name,
-                           f"additions 下有未知段 {bad}（只认 {', '.join(SECTIONS)}）"))
+        out.append(Finding("error", "-", path.name,
+                           "缺顶层键 additions: 或它不是映射，本提案不会合并任何内容"))
+        return False
+    if not any(True for _ in iter_items(doc)):
+        out.append(Finding("error", "-", path.name,
+                           "additions 下没有任何可识别条目——检查 entities/relations/"
+                           "kb_cases 的拼写，以及每条是否都有 item:"))
+        return False
+    return True
 
 
-def check_target_file(section: str, entry: dict, key: str, out: list) -> None:
-    tf = entry.get("target_file")
-    if not tf:
-        out.append(Finding("error", section, key,
-                           "缺 target_file（写成 target: 不会报错，apply 会打印“跳过”后继续）"))
-        return
-    p = C.ROOT / tf
-    if not p.is_file():
-        out.append(Finding("error", section, key, f"target_file 不存在：{tf}"))
-        return
-    expect = {"entities": "entities", "relations": "relations", "kb_cases": "cases"}[section]
-    try:
-        text = p.read_text(encoding="utf-8")
-    except OSError as exc:
-        out.append(Finding("error", section, key, f"target_file 读取失败：{exc!r}"))
-        return
-    if f"{expect}:" not in text:
-        out.append(Finding("warn", section, key,
-                           f"target_file 里没有 {expect}: 段，apply 会在文件末尾新建"))
-
-
-def check_provenance(section: str, key: str, item: dict, meta: dict,
-                     min_conf: str, out: list) -> None:
-    prov = item.get("provenance")
-    if not isinstance(prov, dict):
-        out.append(Finding("error", section, key, "缺 provenance"))
-        return
-    schema = meta.get("provenance_schema") or {}
-    allowed_src = ((schema.get("source_type") or {}).get("allowed")
-                   or ["model_prior", "web", "analogy", "human"])
-    src = prov.get("source_type")
-    if src not in allowed_src:
-        out.append(Finding("error", section, key,
-                           f"provenance.source_type={src!r} 非法（应为 {'/'.join(allowed_src)}）"))
-    conf = prov.get("confidence")
-    if conf not in CONF_ORDER:
-        out.append(Finding("error", section, key,
-                           f"provenance.confidence={conf!r} 非法（应为 low/medium/high）"))
-    elif CONF_ORDER[conf] < CONF_ORDER.get(min_conf, 1):
-        out.append(Finding("warn", section, key,
-                           f"confidence={conf} 低于 guards.min_confidence={min_conf}，"
-                           "会被 apply 拦下留在 pending/"))
-    if src == "web" and not (prov.get("ref") or "").strip():
-        out.append(Finding("error", section, key,
-                           "source_type=web 但 provenance.ref 为空"))
-    if src != "web" and (prov.get("ref") or "").strip():
-        out.append(Finding("warn", section, key,
-                           f"source_type={src} 却填了 ref，来源与证据不一致"))
-    if not str(prov.get("created_at") or "").strip():
-        out.append(Finding("warn", section, key, "provenance 缺 created_at"))
-
-    # 顶层 confidence 是个真陷阱：apply_changeset.py 只读 provenance.confidence，
-    # 顶层那个对放行判断完全无效，写了容易以为已经达标。
-    if "confidence" in item and section == "relations":
-        top, inner = item.get("confidence"), prov.get("confidence")
-        if top != inner:
-            out.append(Finding("warn", section, key,
-                               f"顶层 confidence={top} 与 provenance.confidence={inner} 不一致；"
-                               "apply 只读后者，顶层不参与放行判断"))
-
-
-def check_entity(item: dict, meta: dict, existing: dict, out: list) -> None:
-    key = item_key("entities", item)
-    etypes = meta.get("entity_types") or {}
-    req = meta.get("entity_required_fields") or []
-    opt = set(meta.get("entity_optional_fields") or [])
-
-    missing = [f for f in req if f not in item or item.get(f) in (None, "", [], {})]
-    if missing:
-        out.append(Finding("error", "entities", key, f"缺必填字段：{', '.join(missing)}"))
-    unknown = {f for f in set(item) - set(req) - opt - {"provenance"}
-               if not f.startswith("_")}
-    if unknown:
-        out.append(Finding("error", "entities", key,
-                           f"未知字段：{', '.join(sorted(unknown))}（R003 无未知字段）"))
-
-    etype = item.get("type")
-    if etype not in etypes:
-        out.append(Finding("error", "entities", key,
-                           f"type={etype!r} 不在 entity_types 内"))
-    eid = item.get("id") or ""
-    pattern = ((meta.get("id_rules") or {}).get("pattern")
-               or r'^(core|fab|ap|ext)\.[a-z_]+\.[a-z0-9_]+$')
-    if not re.match(pattern, eid):
-        out.append(Finding("error", "entities", key, f"ID 不符合 id_rules.pattern：{eid}"))
-    else:
-        parts = eid.split(".")
-        if etype in etypes:
-            want = etypes[etype].get("type_slug")
-            if parts[1] != want:
-                out.append(Finding("error", "entities", key,
-                                   f"ID 中段 {parts[1]!r} 与 type={etype} 的 "
-                                   f"type_slug={want!r} 不一致（R002）"))
-        if item.get("domain") and parts[0] != item["domain"]:
-            out.append(Finding("error", "entities", key,
-                               f"domain={item['domain']} 与 ID 前缀 {parts[0]} 不一致（R007）"))
-    if eid in existing:
-        out.append(Finding("error", "entities", key,
-                           f"ID 已存在于 {existing[eid].get('_file')}（R001 全局唯一）"))
-
-    hooks = item.get("economic_hooks")
-    if isinstance(hooks, dict):
-        allowed = (((meta.get("economic_hooks_schema") or {}).get("affects") or {})
-                   .get("allowed") or [])
-        for a in hooks.get("affects") or []:
-            if allowed and a not in allowed:
-                out.append(Finding("error", "entities", key,
-                                   f"economic_hooks.affects={a!r} 不在允许集合内（R011）"))
-
-
-def check_derived(new_entities: list[dict], meta: dict, out: list) -> None:
-    """对提案新增实体做派生展开并验证白名单。
-
-    这是 validate.py 的盲区：它的 check_relations() 只吃显式关系，
-    build_index.py 却把 relations + derived 一起入图，非法派生边
-    不报错却会静默进图。首轮 5 条 reject 全部死在这里。
-    """
-    if not new_entities:
-        return
-    ents = {e["id"]: dict(e, _file="<changeset>") for e in new_entities if e.get("id")}
-    rtypes = meta.get("relation_types") or {}
-    try:
-        derived = C.derived_relations(ents, meta)
-    except Exception as exc:                               # noqa: BLE001
-        out.append(Finding("warn", "entities", "-", f"派生关系展开失败：{exc!r}"))
-        return
-    types = {i: e.get("type") for i, e in ents.items()}
-    for rel in derived:
-        spec = rtypes.get(rel["type"])
-        if not spec:
-            continue
-        for side, allowed in (("from", spec.get("from") or []), ("to", spec.get("to") or [])):
-            node = rel[side]
-            ntype = types.get(node)
-            if ntype is None:          # 指向库内已有实体，交由 validate 合并后统一校验
+def check_shape(doc: dict, out: list[Finding]) -> None:
+    """每个条目的 target_file 与 item 是否就位。"""
+    add = doc.get("additions") or {}
+    for unknown in set(add) - set(SECTIONS):
+        out.append(Finding("error", "-", str(unknown),
+                           f"未知段名 {unknown!r}，本段全部条目会被忽略。"
+                           f"合法段名：{', '.join(SECTIONS)}"))
+    for section in SECTIONS:
+        for i, entry in enumerate(add.get(section) or []):
+            if not isinstance(entry, dict):
+                out.append(Finding("error", section, f"#{i}", "条目不是映射"))
                 continue
-            if allowed and ntype not in allowed:
-                owner = rel["from"] if side == "to" else rel["to"]
-                out.append(Finding(
-                    "error", "entities", owner,
-                    f"字段 {rel['_field']} 派生出 {rel['from']} --{rel['type']}--> {rel['to']}，"
-                    f"{side} 端类型 {ntype} 不在白名单 {allowed}（R005）。"
-                    f"注意 validate.py 不校验派生关系，此边会静默进图——删掉该字段"))
+            if not isinstance(entry.get("item"), dict):
+                out.append(Finding("error", section, f"#{i}",
+                                   "缺 item: 或它不是映射，该条会被跳过"))
+                continue
+            key = item_key(section, entry["item"])
+            if not entry.get("target_file"):
+                wrong = next((k for k in ("target", "file", "path") if k in entry), None)
+                hint = f"（发现 {wrong!r}）" if wrong else ""
+                out.append(Finding("error", section, key,
+                                   f"缺 target_file{hint}——apply 会打印'跳过'后继续，"
+                                   "退出码仍是 0"))
+            elif not (C.ROOT / str(entry["target_file"])).parent.is_dir():
+                out.append(Finding("error", section, key,
+                                   f"target_file 的目录不存在：{entry['target_file']}"))
 
 
-def check_relation(item: dict, meta: dict, existing: dict, new_ids: dict,
-                   existing_rels: set, out: list) -> None:
-    key = item_key("relations", item)
-    rtypes = meta.get("relation_types") or {}
-    for f in meta.get("relation_required_fields") or ["from", "type", "to"]:
-        if not item.get(f):
-            out.append(Finding("error", "relations", key, f"缺必填字段 {f}"))
-    allowed_fields = (set(meta.get("relation_required_fields") or ["from", "type", "to"])
-                      | set(meta.get("relation_optional_fields") or []))
-    unknown = {f for f in set(item) - allowed_fields if not f.startswith("_")}
-    if unknown:
-        out.append(Finding("warn", "relations", key,
-                           f"未知字段：{', '.join(sorted(unknown))}"))
-
-    rtype = item.get("type")
-    spec = rtypes.get(rtype)
-    if not spec:
-        out.append(Finding("error", "relations", key,
-                           f"关系类型 {rtype!r} 不在 relation_types 内（R005）"))
-        return
-
-    def type_of(node: str) -> str | None:
-        if node in new_ids:
-            return new_ids[node]
-        if node in existing:
-            return existing[node].get("type")
-        return None
-
-    for side in ("from", "to"):
-        node = item.get(side)
-        if not isinstance(node, str):
-            continue
-        if C.is_external(node):
-            # ext.* 豁免解析，但仍应确认用在了合适的位置
-            if side == "from":
-                out.append(Finding("warn", "relations", key,
-                                   "from 端是 ext.*，跨行业类比通常应从本域实体指向 ext.*"))
-            continue
-        ntype = type_of(node)
-        if ntype is None:
-            out.append(Finding("error", "relations", key,
-                               f"{side} 端 {node} 在库内与本提案中都找不到（R004 悬空引用）"))
-            continue
-        allowed = spec.get(side) or []
-        if allowed and ntype not in allowed:
-            out.append(Finding("error", "relations", key,
-                               f"{side} 端 {node} 类型 {ntype} 不在白名单 {allowed}（R005）"))
-    if key in existing_rels:
-        out.append(Finding("error", "relations", key, "该关系已存在于库中，重复新增"))
-
-
-def check_kb_case(item: dict, meta: dict, existing: dict, new_ids: dict,
-                  existing_kb: dict, out: list) -> None:
-    key = item_key("kb_cases", item)
-    schema = meta.get("kb_schema") or {}
-    req = schema.get("required_fields") or []
-    opt = set(schema.get("optional_fields") or [])
-    missing = [f for f in req if f not in item or item.get(f) in (None, "", [], {})]
-    if missing:
-        out.append(Finding("error", "kb_cases", key, f"缺必填字段：{', '.join(missing)}"))
-    unknown = {f for f in set(item) - set(req) - opt if not f.startswith("_")}
-    if unknown:
-        out.append(Finding("error", "kb_cases", key,
-                           f"未知字段：{', '.join(sorted(unknown))}"))
-    pat = schema.get("id_pattern") or r'^kb\.(fab|ap)\.[a-z0-9_]+$'
-    if not re.match(pat, str(item.get("id") or "")):
-        out.append(Finding("error", "kb_cases", key,
-                           f"ID 不符合 kb_schema.id_pattern：{item.get('id')}"))
-    if item.get("id") in existing_kb:
-        out.append(Finding("error", "kb_cases", key,
-                           f"ID 已存在于 {existing_kb[item['id']].get('_file')}"))
-
-    domain = item.get("domain")
-
-    def resolve(ref: str, field: str) -> None:
-        if not isinstance(ref, str) or C.is_external(ref):
-            return
-        ntype = new_ids.get(ref) or (existing.get(ref) or {}).get("type")
-        if ntype is None:
-            out.append(Finding("error", "kb_cases", key,
-                               f"{field}={ref} 在库内与本提案中都找不到（R014）"))
-            return
-        want = KB_REF_TYPES.get(field)
-        if want and ntype not in want:
-            out.append(Finding("error", "kb_cases", key,
-                               f"{field}={ref} 类型为 {ntype}，应为 {'/'.join(want)}（R014）"))
-        # 域自洽：ap 的实例不该引用 fab 的实体，反之亦然
-        prefix = ref.split(".")[0]
-        if domain and prefix not in (domain, "core"):
-            out.append(Finding("error", "kb_cases", key,
-                               f"{field}={ref} 跨域引用：domain={domain} 只应引用 "
-                               f"{domain}.* 或 core.*"))
-
-    for f in ("anomaly_ref", "detected_at_ref"):
-        if item.get(f):
-            resolve(item[f], f)
-    for lst, field in (("possible_causes", "cause_ref"),
-                       ("detection", "metric_ref"),
-                       ("actions", "action_ref")):
-        for sub in item.get(lst) or []:
-            if isinstance(sub, dict) and sub.get(field):
-                resolve(sub[field], field)
-    for p in (item.get("impact") or {}).get("blocked_processes") or []:
-        if isinstance(p, str):
-            resolve(p, "detected_at_ref")   # 同样要求 Process 类型
-
-    likert = (schema.get("possible_causes_item") or {}).get("likelihood") or {}
-    allowed_lk = likert.get("allowed") or ["high", "medium", "low"]
-    for sub in item.get("possible_causes") or []:
-        if isinstance(sub, dict) and sub.get("likelihood") not in allowed_lk:
-            out.append(Finding("warn", "kb_cases", key,
-                               f"possible_causes.likelihood={sub.get('likelihood')!r} "
-                               f"不在 {allowed_lk}"))
-        if isinstance(sub, dict) and not str(sub.get("discriminator") or "").strip():
-            out.append(Finding("warn", "kb_cases", key,
-                               f"cause_ref={sub.get('cause_ref')} 缺 discriminator"
-                               "（kb_schema 称其为最有价值的字段）"))
-    orders = [s.get("order") for s in item.get("actions") or []
-              if isinstance(s, dict) and s.get("order") is not None]
-    if orders and sorted(orders) != list(range(min(orders), min(orders) + len(orders))):
-        out.append(Finding("warn", "kb_cases", key,
-                           f"actions.order 不连续：{orders}"))
-
-
-def check_semantic_lints(doc: dict, existing: dict, new_ids: dict, out: list) -> None:
-    """把历次审核反复做的判断沉淀成 lint。全部 warn，只提示复查。
-
-    这些替代不了语义审核，但能把最常犯的三类问题在几毫秒内标出来，
-    省掉一轮"生成 -> 审核 -> 打回 -> 重写"。
-    """
-    ents = {i["id"]: i for _s, _e, i in iter_items(doc)
-            if _s == "entities" and i.get("id")}
-
-    # 1. MTTR 语义与 may_cause 并存
-    for section, _entry, item in iter_items(doc):
-        if section != "relations" or item.get("type") != "may_cause":
-            continue
-        src = item.get("from")
-        text = " ".join(str(x or "") for x in (
-            (ents.get(src) or existing.get(src) or {}).get("description"),
-            item.get("note"),
-            ((ents.get(src) or existing.get(src) or {}).get("economic_hooks") or {})
-            .get("note")))
-        hit = [w for w in MTTR_WORDS if w in text]
-        if hit:
-            out.append(Finding("warn", "relations", item_key("relations", item),
-                               f"描述含 {hit[:2]} 等时长类措辞却用 may_cause——"
-                               "may_cause 只表示导致异常发生，不表示决定持续多久。"
-                               "确认这是成因而非 MTTR 解释项（同类问题曾被 reject）"))
-
-    # 2. model_prior 却写了需引用的具体断言
-    for section, _entry, item in iter_items(doc):
-        prov = item.get("provenance") or {}
-        if prov.get("source_type") != "model_prior":
-            continue
-        fields = [item.get("description"), item.get("note")]
-        if section == "kb_cases":
-            fields += [item.get("notes"),
-                       (item.get("impact") or {}).get("economic")]
-        for txt in fields:
-            m = CITE_PAT.search(str(txt or ""))
-            if m:
-                out.append(Finding("warn", section, item_key(section, item),
-                                   f"标 model_prior 却出现具体断言 {m.group(0)!r}——"
-                                   "标准号与量化阈值属需文献支撑的外部事实，"
-                                   "拿不到原文就不要写数值"))
-                break
-
-    # 3. economic_hooks / impact 里的量化承诺
-    for section, _entry, item in iter_items(doc):
-        texts = []
-        if section == "entities":
-            texts.append((item.get("economic_hooks") or {}).get("note"))
-        elif section == "kb_cases":
-            texts.append((item.get("impact") or {}).get("economic"))
-        for txt in texts:
-            m = QUANT_PAT.search(str(txt or ""))
-            if m:
-                out.append(Finding("warn", section, item_key(section, item),
-                                   f"经济影响里出现量化表述 {m.group(0)!r}——"
-                                   "经营模型层尚未落地，量化承诺没有兜底依据"))
-                break
-
-    # 4. kb_case 列了 cause/action 但图上没有对应边。
-    #    库内既有约定允许这样（12 个实例里 5 个如此），R014 也只查引用存在性，
-    #    所以只提示不阻断——但新增实例最好顺手把边补上。
-    rels = {f"{i.get('from')}|{i.get('type')}|{i.get('to')}"
-            for s, _e, i in iter_items(doc) if s == "relations"}
-    try:
-        live = {f"{r.get('from')}|{r.get('type')}|{r.get('to')}"
-                for r in C.load_relations()}
-    except Exception:                                      # noqa: BLE001
-        live = set()
+def check_internal_deps(doc: dict, out: list[Finding]) -> None:
+    """提案内部的落库顺序依赖。validate 只看最终状态，看不到顺序。"""
+    new_ents = {i.get("id") for s, _e, i in iter_items(doc) if s == "entities"}
     for section, _entry, item in iter_items(doc):
         if section != "kb_cases":
             continue
-        an = item.get("anomaly_ref")
-        if not an:
-            continue
-        miss = []
-        for sub in item.get("possible_causes") or []:
-            c = (sub or {}).get("cause_ref")
-            if c and f"{c}|may_cause|{an}" not in rels | live:
-                miss.append(c)
-        for sub in item.get("actions") or []:
-            act = (sub or {}).get("action_ref")
-            if act and f"{an}|mitigated_by|{act}" not in rels | live:
-                miss.append(act)
-        if miss:
+        refs = [item.get("anomaly_ref"), item.get("detected_at_ref")]
+        refs += [(c or {}).get("cause_ref") for c in item.get("possible_causes") or []]
+        refs += [(a or {}).get("action_ref") for a in item.get("actions") or []]
+        dep = sorted({r for r in refs if r and r in new_ents})
+        if dep:
             out.append(Finding("warn", "kb_cases", item_key(section, item),
-                               f"{len(miss)} 个 ref 在图上没有对应边（如 "
-                               f"{', '.join(miss[:3])}）。库内既有约定允许，"
-                               "但补齐后风险图谱回溯才完整"))
+                               f"引用了本提案新增的 {len(dep)} 个实体"
+                               f"（{', '.join(dep[:3])}）。apply 会把它转人工，"
+                               "这是预期行为不是 bug"))
 
 
-def check_dup_names(new_entities: list[dict], existing: dict, out: list) -> None:
-    """名称近似查重。只给候选、不下结论——是否真重复要模型判断语义。"""
-    for item in new_entities:
-        key = item_key("entities", item)
-        etype = item.get("type")
-        cands = []
-        for name_field in ("name_zh", "name_en"):
-            nm = item.get(name_field)
-            if not nm:
-                continue
-            nb = bigrams(nm)
-            for eid, ent in existing.items():
-                if ent.get("type") != etype:
-                    continue
-                for ef in ("name_zh", "name_en"):
-                    en = ent.get(ef)
-                    if not en:
-                        continue
-                    if norm_name(nm) == norm_name(en):
-                        cands.append((1.0, eid, en))
-                        continue
-                    eb = bigrams(en)
-                    if nb and eb:
-                        j = len(nb & eb) / len(nb | eb)
-                        if j >= 0.5:
-                            cands.append((j, eid, en))
-        seen, uniq = set(), []
-        for sim, eid, en in sorted(cands, reverse=True):
-            if eid in seen:
-                continue
-            seen.add(eid)
-            uniq.append(f"{eid}（{en}，相似度 {sim:.0%}）")
-        if uniq:
-            out.append(Finding("warn", "entities", key,
-                               "名称接近已有同类实体，请确认是否语义重复："
-                               + "；".join(uniq[:3])))
+def check_lints(doc: dict, existing: dict, out: list[Finding]) -> None:
+    """三类判断线索。全部 warn。"""
+    new_ents = {i["id"]: i for s, _e, i in iter_items(doc)
+                if s == "entities" and i.get("id")}
 
-
-def check_dup_hooks(new_entities: list[dict], existing: dict, out: list) -> None:
-    """affects 集合完全相同的同类实体。
-
-    比单纯名称相似更强的重复信号：上一轮被 reject 的
-    fab.action.rebalance_dispatch 与已有 skip_ahead 名称并不像，
-    但作用对象完全一致——机制重复靠名字查不出来。
-    """
-    for item in new_entities:
-        hooks = item.get("economic_hooks")
-        if not isinstance(hooks, dict):
-            continue
-        mine = frozenset(hooks.get("affects") or [])
-        if not mine:
-            continue
-        same = []
-        for eid, ent in existing.items():
-            if ent.get("type") != item.get("type"):
-                continue
-            eh = ent.get("economic_hooks")
-            if isinstance(eh, dict) and frozenset(eh.get("affects") or []) == mine:
-                same.append(f"{eid}（{ent.get('name_zh')}）")
-        if same:
-            out.append(Finding("warn", "entities", item_key("entities", item),
-                               f"economic_hooks.affects 与 {len(same)} 个同类实体完全相同"
-                               f"（{'；'.join(same[:3])}）。作用对象一致是比名称更强的"
-                               "重复信号，确认机制真的不同"))
-
-
-def check_internal_deps(doc: dict, out: list) -> None:
-    """提案内依赖顺序。被依赖的实体若排在后面，apply 会把依赖方一并转人工。"""
-    order: dict[str, int] = {}
-    idx = 0
     for section, _entry, item in iter_items(doc):
-        if section == "entities" and item.get("id"):
-            order[item["id"]] = idx
-        idx += 1
-    idx = 0
-    for section, _entry, item in iter_items(doc):
-        if section != "entities":
-            for ref in _refs_of(section, item):
-                if ref in order and order[ref] > idx:
-                    out.append(Finding("warn", section, item_key(section, item),
-                                       f"引用了排在本条之后的新增实体 {ref}，"
-                                       "建议把被依赖项前置"))
-        idx += 1
+        key = item_key(section, item)
+
+        # 1. MTTR 措辞 + may_cause
+        if section == "relations" and item.get("type") == "may_cause":
+            src = item.get("from")
+            ent = new_ents.get(src) or existing.get(src) or {}
+            text = f"{ent.get('description') or ''} {item.get('note') or ''} " \
+                   f"{(ent.get('economic_hooks') or {}).get('note') or ''}"
+            hit = [w for w in MTTR_WORDS if w in text]
+            if hit:
+                out.append(Finding("warn", section, key,
+                                   f"描述含 {hit[:2]} 等时长类措辞却用 may_cause。"
+                                   "may_cause 只表示导致异常发生，不表示决定持续多久"))
+
+        # 2. model_prior 却写了需引用的具体断言
+        if (item.get("provenance") or {}).get("source_type") == "model_prior":
+            fields = [item.get("description"), item.get("note"),
+                      item.get("notes"), (item.get("impact") or {}).get("economic")]
+            for txt in fields:
+                m = CITE_PAT.search(str(txt or ""))
+                if m:
+                    out.append(Finding("warn", section, key,
+                                       f"标 model_prior 却出现 {m.group(0)!r}——"
+                                       "标准号与量化阈值属需文献支撑的外部事实"))
+                    break
+
+        # 3. kb_case 列了 cause/action 但图上没有对应边
+        if section == "kb_cases" and item.get("anomaly_ref"):
+            an = item["anomaly_ref"]
+            new_rels = {f"{i.get('from')}|{i.get('type')}|{i.get('to')}"
+                        for s, _e, i in iter_items(doc) if s == "relations"}
+            try:
+                live = {f"{r.get('from')}|{r.get('type')}|{r.get('to')}"
+                        for r in C.load_relations()}
+            except Exception:                                  # noqa: BLE001
+                live = set()
+            both = new_rels | live
+            miss = [c for c in
+                    ((x or {}).get("cause_ref") for x in item.get("possible_causes") or [])
+                    if c and f"{c}|may_cause|{an}" not in both]
+            miss += [a for a in
+                     ((x or {}).get("action_ref") for x in item.get("actions") or [])
+                     if a and f"{an}|mitigated_by|{a}" not in both]
+            if miss:
+                out.append(Finding("warn", section, key,
+                                   f"{len(miss)} 个 ref 在图上没有对应边"
+                                   f"（{', '.join(miss[:3])}）。库内约定允许，"
+                                   "但补齐后风险图谱回溯才完整"))
 
 
-def _refs_of(section: str, item: dict) -> set[str]:
-    refs: set[str] = set()
-    if section == "relations":
-        for k in ("from", "to"):
-            if isinstance(item.get(k), str):
-                refs.add(item[k])
-    elif section == "kb_cases":
-        for k in ("anomaly_ref", "detected_at_ref"):
-            if isinstance(item.get(k), str):
-                refs.add(item[k])
-        for lst, key in (("possible_causes", "cause_ref"), ("actions", "action_ref"),
-                         ("detection", "metric_ref")):
-            for sub in item.get(lst) or []:
-                if isinstance(sub, dict) and isinstance(sub.get(key), str):
-                    refs.add(sub[key])
-        for p in (item.get("impact") or {}).get("blocked_processes") or []:
-            if isinstance(p, str):
-                refs.add(p)
-    return refs
-
-
-# ---------- 主流程 ----------
-
-def precheck(path: Path, meta: dict, cfg: dict, existing: dict,
-             existing_rels: set, existing_kb: dict) -> list[Finding]:
+def check_one(path: Path) -> list[Finding]:
     out: list[Finding] = []
     try:
-        doc = C.load_yaml(path) or {}
-    except Exception as exc:                               # noqa: BLE001
+        doc = C.load_yaml(path)
+    except Exception as exc:                                   # noqa: BLE001
         return [Finding("error", "-", path.name, f"YAML 解析失败：{exc!r}")]
-    if not isinstance(doc, dict):
-        return [Finding("error", "-", path.name, "顶层不是映射")]
-
-    check_envelope(doc, path, out)
-    min_conf = (((cfg.get("review") or {}).get("guards") or {})
-                .get("min_confidence", "medium"))
-
-    new_entities = [i for s, _e, i in iter_items(doc) if s == "entities"]
-    new_ids = {i["id"]: i.get("type") for i in new_entities if i.get("id")}
-
-    for section, entry, item in iter_items(doc):
-        key = item_key(section, item)
-        if not item:
-            out.append(Finding("error", section, key or "?", "条目缺 item: 段"))
-            continue
-        check_target_file(section, entry, key, out)
-        check_provenance(section, key, item, meta, min_conf, out)
-        if section == "entities":
-            check_entity(item, meta, existing, out)
-        elif section == "relations":
-            check_relation(item, meta, existing, new_ids, existing_rels, out)
-        else:
-            check_kb_case(item, meta, existing, new_ids, existing_kb, out)
-
-    check_derived(new_entities, meta, out)
-    check_dup_names(new_entities, existing, out)
-    check_dup_hooks(new_entities, existing, out)
-    check_semantic_lints(doc, existing, new_ids, out)
+    if not check_envelope(doc, path, out):
+        return out
+    check_shape(doc, out)
     check_internal_deps(doc, out)
+    try:
+        existing, _dup = C.load_entities()
+    except Exception:                                          # noqa: BLE001
+        existing = {}
+    check_lints(doc, existing, out)
     return out
 
 
 def main() -> int:
     C.setup_console()
-    ap = argparse.ArgumentParser(description="提案送审前的确定性检查")
-    ap.add_argument("changeset", nargs="*", help="提案路径；省略则检查 pending/ 下全部")
+    ap = argparse.ArgumentParser(description="提案落库前的形状检查")
+    ap.add_argument("paths", nargs="*", help="提案路径；省略则查 pending/ 全部")
     ap.add_argument("--json", action="store_true", dest="as_json")
-    args = ap.parse_args()
+    a = ap.parse_args()
 
-    if args.changeset:
-        paths = []
-        for raw in args.changeset:
-            p = Path(raw)
-            if not p.is_absolute():
-                p = (C.ROOT / raw).resolve()
+    if a.paths:
+        paths = [Path(p) if Path(p).is_absolute() else C.ROOT / p for p in a.paths]
+        for p in paths:
             if not p.is_file():
-                print(f"提案不存在：{p}")
+                print(f"文件不存在：{p}")
                 return 2
-            paths.append(p)
     else:
         paths = sorted((C.ROOT / "changesets" / "pending").glob("*.yaml"))
         if not paths:
             print("changesets/pending/ 下没有提案。")
             return 0
 
-    meta, cfg = C.load_meta(), C.load_config()
-    existing, dup = C.load_entities()
-    existing_rels = {f"{r.get('from')}|{r.get('type')}|{r.get('to')}"
-                     for r in C.load_relations()}
-    existing_kb = {c.get("id"): c for c in C.load_kb() if c.get("id")}
-    if dup:
-        print(f"注意：库内已有重复 ID {len(dup)} 处，先跑 validate.py")
+    results = {p: check_one(p) for p in paths}
+    n_err = sum(1 for fs in results.values() for f in fs if f.level == "error")
+    n_warn = sum(1 for fs in results.values() for f in fs if f.level == "warn")
 
-    report, n_err, n_warn = [], 0, 0
-    for p in paths:
-        fs = precheck(p, meta, cfg, existing, existing_rels, existing_kb)
-        errs = [f for f in fs if f.level == "error"]
-        warns = [f for f in fs if f.level == "warn"]
-        n_err += len(errs)
-        n_warn += len(warns)
-        report.append({"file": p.name, "error": len(errs), "warn": len(warns),
-                       "findings": [f.as_dict() for f in fs]})
-
-    if args.as_json:
-        print(json.dumps({"error": n_err, "warn": n_warn, "files": report},
+    if a.as_json:
+        print(json.dumps({str(p.relative_to(C.ROOT)): [f.as_dict() for f in fs]
+                          for p, fs in results.items()},
                          ensure_ascii=False, indent=2))
         return 1 if n_err else 0
 
-    for r in report:
+    for p, fs in results.items():
+        e = sum(1 for f in fs if f.level == "error")
+        w = len(fs) - e
         print("=" * 72)
-        print(f"提案 {r['file']}：ERROR {r['error']} | WARN {r['warn']}")
+        print(f"提案 {p.name}：ERROR {e} | WARN {w}")
         print("=" * 72)
-        if not r["findings"]:
-            print("  确定性检查全过。")
-        for f in r["findings"]:
-            tag = "ERROR" if f["level"] == "error" else "warn "
-            print(f"  [{tag}] [{f['section']}] {f['key']}")
-            print(f"          {f['msg']}")
+        if not fs:
+            print("  形状检查全过。")
+        for f in sorted(fs, key=lambda x: 0 if x.level == "error" else 1):
+            print(f"  [{f.level:<5}] [{f.section}] {f.key}")
+            print(f"          {f.msg}")
+
     print("-" * 72)
     if n_err:
-        print(f"共 ERROR {n_err} | WARN {n_warn}。有 error 不应落库——"
-              "这些都是确定性规则，改掉比事后回滚便宜得多。")
+        print(f"共 ERROR {n_err} | WARN {n_warn}。有 error 不应落库。")
         return 1
-    print(f"共 ERROR 0 | WARN {n_warn}。确定性检查通过。")
-    print("剩下只需人判断：provenance 标得该不该、概念是否语义重复、"
-          "may_cause 用得对不对、建模层次是否恰当。上面的 warn 是复查线索。")
+    print(f"共 ERROR {n_err} | WARN {n_warn}。形状检查通过。")
+    print("字段级规则由 apply 合并后的 validate 兜（失败自动回滚）。"
+          "剩下需要人判断的是：provenance 标得该不该、概念是否重复、建模层次是否恰当。")
     return 0
 
 

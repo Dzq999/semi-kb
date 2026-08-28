@@ -135,6 +135,49 @@ def check_relations(entities: dict, relations: list[dict], meta: dict) -> None:
             add("error", "R006", f"关系 confidence={conf!r} 非法：{a} -> {b} ({where})")
 
 
+def check_derived(entities: dict, derived: list[dict], meta: dict) -> None:
+    """派生关系也要过 relation_types 白名单。
+
+    这里曾是全库校验唯一的盲区，代价真实发生过：
+    某轮提案给 5 个 Cause/Action 实体写了 equipment 字段，meta-schema 的
+    derived_relations 规则据此派生出 belongs_to 边指向 Cause/Action，
+    而白名单只允许 to: [Stage, Process]。check_relations 只吃显式关系，
+    build_index 却把 relations + derived 一起入图——非法边不报错却静默进图，
+    5 条错误一路走到审核阶段才被人发现。
+
+    范围刻意只限 belongs_to。实测把白名单全面套到派生边上会误报 19 条：
+    Route/Material/State/RiskNode 上的 metrics、materials 字段会派生出
+    measured_by、performed_on 边，其 from 端类型本就不在白名单里，
+    而这些是库里一直存在的正当内容。派生规则的设计意图是"补图的连通性"，
+    不是"每条派生边都必须满足显式关系的类型约束"。
+
+    belongs_to 不同：它的语义是"归属于某道工序/阶段"，to 端必须是
+    Stage 或 Process，这个约束对派生边同样成立。上面那 5 条错误正是
+    to 端落到 Cause/Action 上。
+
+    只查这一条规则，宁可窄而准——误报会让人学会忽略 ERROR，比漏报更糟。
+    """
+    rtypes = meta["relation_types"]
+    spec = rtypes.get("belongs_to") or {}
+    allowed_to = spec.get("to", [])
+    for rel in derived:
+        if rel.get("type") != "belongs_to":
+            continue
+        eid = rel.get("to")
+        if C.is_external(eid):
+            continue
+        ent = entities.get(eid)
+        if ent is None:
+            add("error", "R004", f"派生关系 belongs_to 的 to 端 '{eid}' 不存在")
+            continue
+        if ent.get("type") not in allowed_to:
+            add("error", "R005",
+                f"派生 belongs_to 的 to 端 {eid} 类型 {ent.get('type')} "
+                f"不满足约束 {allowed_to}（from={rel.get('from')}）。"
+                f"通常是给 Cause/Action 写了 equipment 字段——"
+                f"设备关联应通过 Process 的 equipment 字段表达")
+
+
 def check_graph(entities: dict, relations: list[dict], derived: list[dict],
                 meta: dict, cfg: dict) -> None:
     # R008 孤立实体：既不参与任何关系，也未被任何实体字段引用
@@ -339,6 +382,7 @@ def main() -> int:
 
     check_entities(entities, dup, meta)
     check_relations(entities, relations, meta)
+    check_derived(entities, derived, meta)
     check_graph(entities, relations, derived, meta, cfg)
     check_kb(entities, kb_cases, meta)
     check_competency(entities, relations, derived, meta, C.load_competency())
