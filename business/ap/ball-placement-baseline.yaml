@@ -1,0 +1,80 @@
+schema_version: "1.0"
+model:
+  id: business.ap.ball_placement_baseline
+  name: 植球缺球经营影响最小模型
+  description: >
+    用月度投入量、缺球率、返工挽回率、售价与单位加工成本，计算可售数量、
+    返工数量、报废数量、收入与经营贡献。所有数值均为演示假设，替换为现场数据后才能用于决策。
+  period: month
+  currency: CNY
+  inputs:
+    - id: started_units
+      value: 100000
+      unit: package/month
+      source: assumption
+      note: 月投入封装数量，演示值
+    - id: missing_ball_rate
+      value: 0.008
+      unit: ratio
+      source: model_prior
+      ontology_ref: ap.anomaly.missing_ball
+      note: 缺球发生率，非现场实测
+    - id: rework_recovery_rate
+      value: 0.85
+      unit: ratio
+      source: assumption
+      ontology_ref: ap.action.reball_rework
+      note: 缺球品经返工后恢复为良品的比例
+    - id: selling_price
+      value: 12
+      unit: CNY/package
+      source: assumption
+      note: 演示售价
+    - id: processing_cost
+      value: 7
+      unit: CNY/package
+      source: assumption
+      note: 投入品单位加工成本
+    - id: rework_cost
+      value: 1.2
+      unit: CNY/package
+      source: assumption
+      note: 每个返工品附加成本
+    - id: intervention_opex
+      value: 0
+      unit: CNY/month
+      source: assumption
+      note: 基线无新增维护费用
+  equations:
+    - id: defect_units
+      formula: started_units * missing_ball_rate
+      unit: package/month
+    - id: recovered_units
+      formula: defect_units * rework_recovery_rate
+      unit: package/month
+    - id: scrap_units
+      formula: defect_units - recovered_units
+      unit: package/month
+    - id: saleable_units
+      formula: started_units - scrap_units
+      unit: package/month
+    - id: revenue
+      formula: saleable_units * selling_price
+      unit: CNY/month
+    - id: processing_total
+      formula: started_units * processing_cost
+      unit: CNY/month
+    - id: rework_total
+      formula: defect_units * rework_cost
+      unit: CNY/month
+    - id: profit
+      formula: revenue - processing_total - rework_total - intervention_opex
+      unit: CNY/month
+  outputs:
+    - defect_units
+    - recovered_units
+    - scrap_units
+    - saleable_units
+    - revenue
+    - rework_total
+    - profit

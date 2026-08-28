@@ -3,7 +3,7 @@
 半导体**前段厂（Fab）**与**后段厂（AP/封测）**的本体驱动知识库，以 skill 形式交付。
 
 这是 PXAI 四层推演链路（本体 → 知识库 → 经营模型 → 仿真引擎）在半导体行业的落地。
-**当前只实现前两层**，第三层经营模型通过实体上的 `economic_hooks` 字段预留接口。
+当前四层已形成可执行闭环：前两层是领域资产，第三层使用通用经营模板与数据集，第四层使用算法注册表运行确定性干预场景。自动刷新在更新本体/知识库并完成全链校验后，还会扫描 `economic_hooks`，生成只要求补充数据的经营影响候选提案；不会擅自编造经营参数。
 
 本目录既是 skill 本身，也是它管理的数据：`SKILL.md`/`prompts/`/`knowledge/`/`output-contracts/`
 是行为定义，`ontology/`/`kb/`/`build/` 是数据。全库文档中出现的路径都以本目录为基准。
@@ -37,7 +37,40 @@ python scripts/build_index.py       # 重建 build/index.json 与 build/graph.js
 
 依赖：Python 3.10+、PyYAML。`build/` 不在版本库里，首次克隆后跑一次 `build_index.py` 即可生成。
 
-## 五个子流程
+## 第三、四层通用闭环
+
+经营层按职责拆分：`business/templates/` 是制造业、半导体、Fab、AP 的可继承结构；`business/models/` 选择领域模板；`business/datasets/` 保存带单位、来源与可选 `ontology_ref` 的输入；`business/changesets/pending/` 保存自动生成、等待人工补数与审核的经营影响候选。复杂计算由 `scripts/simulation_algorithms.py` 的算法注册表实现，YAML 只声明算法名、输入和场景参数；受限公式仍不允许函数调用或任意 Python。
+
+仿真场景在 `simulation/scenarios/*.yaml`，只描述对通用模型输入执行的 `set` / `multiply` / `add` 干预，不复制经营公式。结果写到 `simulation/runs/`，包含 baseline、intervention、delta、回收期、证据等级和本体链路。
+
+```bash
+python3 scripts/simulate.py --check
+python3 scripts/simulate.py simulation/scenarios/reduce-fixture-clog.yaml
+python3 scripts/simulate.py simulation/scenarios/reduce-fixture-clog.yaml \
+  --output simulation/runs/reduce-fixture-clog.yaml
+```
+
+当前算法注册表包含良率级联、瓶颈产能、OEE 产能、可售产出、收入、变动成本、单位成本、ROI 与回收期。植球治具堵塞只是 AP 模型的一个场景插件；它修改 `ball_placement_yield` 与 `intervention_opex`，并不拥有一套专用经营模型。示例输入均为 `assumption` 或 `model_prior`，输出标记为 `assumption_only`，只代表情景推演。
+
+### 自动刷新后的经营影响提案
+
+`daily_refresh.py` 在本体/知识库合并、全链校验通过后运行 `scripts/economic_impact.py`：
+
+```text
+新增或变化的本体实体
+    ↓ 读取 economic_hooks.affects
+匹配现有 business/models/
+    ↓
+生成 business/changesets/pending/YYYYMMDD-economic-impact-candidates.yaml
+    ↓
+人工补充现场数据并审核
+    ↓
+再写入 business/datasets/ 或 simulation/scenarios/
+```
+
+该阶段只生成 `required_data` 和受影响模型候选，状态固定为 `needs_human_input`；不会自动写良率降幅、成本、停机时间等数值。已有真实数据时更新数据集后即可重跑仿真；没有数据时只能保留为候选，不得称为预测或经营承诺。
+
+## 六个子流程
 
 由 `SKILL.md` 按用户意图路由，提示词在 `prompts/` 下：
 
@@ -48,6 +81,7 @@ python scripts/build_index.py       # 重建 build/index.json 与 build/graph.js
 | `kb-fill` | 为已有异常补写处置知识 | 是 |
 | `kb-refresh` | 找资料、更新本体、产出变更提案 | 只写 `changesets/pending/` |
 | `kb-validate` | 校验一致性、重建索引 | 只写 `build/` |
+| `simulation-run` | 校验经营模型、运行干预场景、比较经营结果 | 可写 `simulation/runs/` |
 
 意图不明时默认 `kb-query`——回答问题不改动任何文件，是零风险选项。
 
@@ -93,12 +127,27 @@ semi-kb/
 │   ├── fab/                       前段案例（光刻蚀刻、缺陷与设备）
 │   └── ap/                        后段案例（键合 WIP、封装与测试）
 │
+├── business/                      经营模型声明层
+│   ├── templates/                 通用制造业 → 半导体 → Fab/AP 可继承模板
+│   ├── models/                    具体领域经营模型（当前含 ap-baseline.yaml）
+│   ├── datasets/                  带单位、来源、时间范围的输入数据集
+│   ├── changesets/pending/        自动发现的经营影响候选，待人工补数/审核
+│   └── ap/                        旧版植球模型兼容区，逐步迁移，不作为新模型主干
+│
+├── simulation/                    仿真层
+│   ├── scenarios/                 具体干预场景，只改模型输入
+│   └── runs/                      仿真运行结果，派生文件
+│
 ├── scripts/                       必须留在根下一级，见下方说明
 │   ├── common.py                  共享加载器：读本体/kb、合并 provenance、展开派生关系
 │   ├── ask.py                     问题 -> 能不能答 + 沿哪条路径答，退出码即判定
 │   ├── validate.py                逐条实现元模型的校验规则，有 error 时退出码非零
 │   ├── build_index.py             生成 build/index.json 与 build/graph.json
-│   └── apply_changeset.py         变更提案裁决、依赖连锁转人工、原子合并与回滚
+│   ├── apply_changeset.py         变更提案裁决、依赖连锁转人工、原子合并与回滚
+│   ├── simulate.py                通用模型加载、算法执行、场景对比与结果输出
+│   ├── simulation_algorithms.py   良率、产能、成本、ROI 等算法注册表
+│   ├── economic_impact.py         从 economic_hooks 生成待补数据的经营影响候选
+│   └── simulate_check.py          全库经营模型与场景校验
 │
 ├── changesets/                    变更提案流转，把"生成"与"落库"分开
 │   ├── pending/                   待裁决的提案，kb-refresh 的产出落在这里

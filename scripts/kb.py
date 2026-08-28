@@ -170,7 +170,7 @@ def cmd_check(a) -> int:
     chain = (["precheck.py"] if pending else []) + ["validate.py"]
     if not a.quick:
         chain.append("build_index.py")
-    chain.append("regress.py")
+    chain.extend(["simulate_check.py", "regress.py"])
     if a.no_precheck:
         print("（--no-precheck：只查已落库内容，不看 pending/）")
     elif not pending:
@@ -188,7 +188,7 @@ def cmd_check(a) -> int:
             print(f"\n{name} 失败，链路中止。总耗时 {total:.2f}s")
             return 1
         keep = [l for l in out.strip().splitlines()
-                if any(k in l for k in ("ERROR", "通过", "实体 ", "已生成", "检索记录"))]
+                if any(k in l for k in ("ERROR", "通过", "实体 ", "已生成", "检索记录", "经营模型/仿真"))]
         for l in keep[-3:]:
             print("    " + l.strip())
 

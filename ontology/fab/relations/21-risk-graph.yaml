@@ -216,3 +216,178 @@ relations:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - from: fab.cause.target_erosion_profile
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 侵蚀沟槽演化改变出射角分布，径向剖面形状随之改变
+    provenance:
+      source_type: web
+      ref: https://doi.org/10.3390/molecules28227660
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.chamber_wall_condition
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 腔壁残留状态影响片间沉积速率与片内均匀性，表现为清洗后首片偏离
+    provenance:
+      source_type: web
+      ref: https://patents.google.com/patent/US20060093756A1/en
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.chamber_wall_condition
+    type: may_cause
+    to: fab.anomaly.particle_excursion
+    note: 内壁残留物脱落成为颗粒源，与膜厚偏移共享同一根因
+    provenance:
+      source_type: web
+      ref: https://patents.google.com/patent/US20060093756A1/en
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.target_end_of_life
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 侵蚀至极限后均匀性恶化，与剖面渐变型的判别见 kb discriminator
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.cause.recipe_misload
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 批间跳变且边界清晰，与渐变型设备漂移可据此区分
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.param.pvd_power
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 溅镀功率偏离窗口直接改变沉积速率，全片同向偏移
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.param.chamber_pressure
+    type: may_cause
+    to: fab.anomaly.film_thickness_dev
+    note: 腔压改变粒子平均自由程与散射，影响径向剖面而非仅整体厚度
+    provenance:
+      source_type: web
+      ref: https://doi.org/10.3390/molecules28227660
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: detected_at
+    to: fab.process.pvd_metal
+    note: 金属层膜厚与方阻在沉积后随线量测，是最早的检出点
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: detected_at
+    to: fab.process.cvd_ild
+    note: 介电层膜厚在沉积后量测，偏移会一路影响到 CMP 后的剩余厚度
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: mitigated_by
+    to: fab.action.chamber_season
+    note: 清洗或长时间待机后的首片偏离，先做预处理再跑验证片
+    provenance:
+      source_type: web
+      ref: https://patents.google.com/patent/US20060093756A1/en
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: mitigated_by
+    to: fab.action.recipe_adjust
+    note: 偏移量稳定且在补偿窗口内时按偏移反算补偿，须留变更与验证记录
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: mitigated_by
+    to: fab.action.replace_consumable
+    note: 侵蚀剖面已无法用参数补偿回来时换靶
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: mitigated_by
+    to: fab.action.hold_lot
+    note: 根因未明前扣留，避免在同一腔体上继续投片
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: blocks
+    to: fab.process.cmp_metal
+    note: '主流程上 pvd_metal 的直接后续。CMP 的去除量按来料厚度设定， 入料厚度未判定就抛光，偏移会转成抛后剩余厚度偏差且不可回补
+
+      '
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: blocks
+    to: fab.process.cmp_oxide
+    note: cvd_ild 侧的下游 CMP，同理：入料厚度未判定不应抛光
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: refines
+    to: core.anomaly.quality_excursion
+    note: 膜厚类超规归入 core 层品质异常骨架
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: high
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: fab.anomaly.film_thickness_dev
+    type: analogous_to
+    to: ext.coating.coat_weight_deviation
+    note: '与卷材/板材涂布行业的涂布量偏差同构：同为"沉积源几何 + 耗材侵蚀 状态 + 腔体/涂布头预处理"三者决定横向分布，都靠径向（横幅）剖面 形状而非单点均值定位根因。可复用的是"先看剖面形状再看均值"的
+      判别顺序与"预处理省不掉"这条经验。
+
+      '
+    provenance:
+      source_type: analogy
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

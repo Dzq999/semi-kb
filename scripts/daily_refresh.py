@@ -42,6 +42,7 @@ from pathlib import Path
 import yaml
 
 import common as C
+from economic_impact import generate_impact_proposal
 
 LOG_DIR = C.ROOT / "logs"
 AGENT_TIMEOUT = 3600          # 生成步骤单次最多跑 1 小时
@@ -367,6 +368,10 @@ def main() -> int:
     if (why := verify()):
         rollback(point, why)
         return 1
+
+    impact = generate_impact_proposal(C.ROOT, f"{datetime.now():%Y-%m-%d}")
+    if impact:
+        log(f"经营影响候选提案：{impact.relative_to(C.ROOT)}（待人工补数据/审核，不自动改经营参数）")
 
     commit(before, after, note)
     log("本次扩充完成。")

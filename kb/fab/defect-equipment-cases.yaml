@@ -242,3 +242,104 @@ cases:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - id: kb.fab.film_thickness_dev_triage
+    domain: fab
+    title: 薄膜膜厚偏移/均匀性超规排查与处置
+    anomaly_ref: fab.anomaly.film_thickness_dev
+    detected_at_ref: fab.process.pvd_metal
+    severity: high
+    symptoms:
+    - 随线膜厚量测超出上下规格，或片内均匀性指标超标
+    - 金属层方阻与膜厚同向偏移（膜薄则方阻升高），可作为交叉确认
+    - 片内径向剖面形状改变：中心与边缘的高低关系发生翻转
+    - 腔体清洗或长时间待机后的首片明显偏离，随后逐片回稳
+    possible_causes:
+    - cause_ref: fab.cause.chamber_wall_condition
+      likelihood: high
+      discriminator: '看时点与收敛方向。本项出现在清洗/长待机之后，偏移随加工片数 收敛；腔体聚合物累积出现在连续生产中且随片数发散。方向相反， 一次片间趋势图就能分开。
+
+        '
+    - cause_ref: fab.cause.target_erosion_profile
+      likelihood: medium
+      discriminator: '看径向剖面形状是否改变而非均值是否漂移。侵蚀沟槽演化改的是 形状（如中心厚转为边缘厚），功率或压力偏移改的是整体水平。 只看片均值会把这两类混成同一个"膜厚漂移"。
+
+        '
+    - cause_ref: fab.cause.target_end_of_life
+      likelihood: medium
+      discriminator: '查靶材累计用量是否接近寿命上限，并看缺陷扫描有无同步的颗粒 跃升。均匀性恶化叠加颗粒风险上升是寿命末期签名；仅剖面渐变 而颗粒平稳则仍在可补偿区间。
+
+        '
+    - cause_ref: fab.cause.recipe_misload
+      likelihood: medium
+      discriminator: '偏移是否在特定批次上突然出现且边界清晰。是则查配方版本与 机台配方履历，不要继续往设备本体查——归因错了改善方向也会错。
+
+        '
+    - cause_ref: fab.param.chamber_pressure
+      likelihood: low
+      discriminator: '查腔压趋势是否与偏移同步。腔压改的是散射行为，表现偏向剖面 变化；纯粹的速率高低更可能来自功率侧。
+
+        '
+    detection:
+    - metric_ref: fab.metric.film_thickness
+      signal: '超出规格上下限，或片内均匀性超标。必须同时看剖面形状—— 只看片均值会漏掉"均值在规格内、边缘已超规"这一类。
+
+        '
+    - metric_ref: fab.metric.sheet_resistance
+      signal: '金属层方阻与膜厚反向变动，可与膜厚量测互为交叉确认； 若两者不一致，先怀疑量测本身而不是制程。
+
+        '
+    - metric_ref: fab.metric.defect_density
+      signal: '颗粒数是否与膜厚偏移同步跃升。同步跃升把根因指向靶材寿命 末期或腔壁残留脱落，而不是纯参数漂移。
+
+        '
+    actions:
+    - action_ref: fab.action.hold_lot
+      order: 1
+      condition: '超规确认后先扣留同腔在制批次。膜厚偏移在后续层会被叠加， 放行的成本随层数增加而放大。
+
+        '
+    - action_ref: fab.action.chamber_season
+      order: 2
+      condition: '偏移出现在清洗或长待机之后、且随片数收敛时执行。预处理后必须 跑验证片确认恢复再放量产；连续生产中途出现的发散型偏移不适用 本动作，那是累积而非未预处理。
+
+        '
+    - action_ref: fab.action.recipe_adjust
+      order: 3
+      condition: '偏移量稳定、方向一致且在补偿窗口内时按偏移反算补偿，须留变更 记录与验证数据。剖面形状已改变的情况不适用——补偿只能移动 整体水平，改不回形状。
+
+        '
+    - action_ref: fab.action.replace_consumable
+      order: 4
+      condition: '靶材接近寿命上限或剖面已无法用参数补偿时换靶，换后跑首件确认。 换靶同时会重置腔体状态，因此换后应连带做预处理。
+
+        '
+    impact:
+      blocked_processes:
+      - fab.process.cmp_metal
+      - fab.process.cmp_oxide
+      economic: '损失结构与突增类异常一致：检出前已连续加工的片数决定波及面， 所以真正的旋钮是量测抽样频次而不是事后处置速度。膜厚不足不可 回补，过厚仅少数层可靠 CMP 修正，多数情况只能判废。
+        介电层偏移的代价还有一层延迟——改变的是层间电容与击穿裕度， 要到 WAT/CP 才充分暴露，届时受影响批次已流过多道工序。
+
+        '
+    tags:
+    - 薄膜
+    - 膜厚
+    - 靶材
+    - 腔体状态
+    - 均匀性
+    notes: '两个新增根因取自公网可核查资料：侵蚀沟槽与膜厚剖面的关系见 molecules28227660（DC 磁控溅射模拟+实验，给出钟形/鞍形/平坦剖面 随源尺寸与靶基距的演化）；腔壁残留影响片间沉积速率与片内均匀性、
+      且脱落转为颗粒污染见 Applied Materials 的 seasoning 专利 US20060093756A1 背景段。
+
+      刻意没写具体数值区间。可取到的数值来自 2/4 英寸靶、2 英寸基片的 实验条件，与 200/300 mm 量产腔体不可直接换算；照搬会得到一个 看起来有据可查、实际无效的工艺窗口。因此只沉淀机理与判别方向，
+      数值留给现场 SPC。
+
+      本条把 fab.stage.thinfilm 从"零异常节点"接进风险图谱。该段仍缺 应力类异常（膜应力导致的晶圆变形会回头影响套刻），下一轮可补—— 它是 film_thickness_dev
+      与 overlay_shift 之间缺的那条传导路径。
+
+      '
+    provenance:
+      source_type: web
+      ref: https://doi.org/10.3390/molecules28227660
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

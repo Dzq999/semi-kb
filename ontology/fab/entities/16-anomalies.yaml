@@ -108,3 +108,31 @@ entities:
     economic_hooks:
       affects: [throughput, capacity_commit, cycle_time, equipment_oee]
       note: 瓶颈停机时数近似线性折算为确定性产出损失
+  - id: fab.anomaly.film_thickness_dev
+    type: Anomaly
+    name_zh: 膜厚偏移/均匀性超规
+    name_en: Film Thickness Deviation
+    domain: fab
+    severity: high
+    description: '沉积膜层厚度偏离目标值或片内均匀性超标。判别要点在偏移的时空形态： 片内径向剖面形状（中心厚的钟形 / 边缘厚的鞍形）指向沉积源几何与 靶材侵蚀轮廓，片间单调漂移指向耗材寿命或腔体壁累积，
+      批间跳变且边界清晰指向配方误用，同腔首片偏离而后续回稳指向 腔体状态未预处理。
+
+      '
+    metrics:
+    - fab.metric.film_thickness
+    - fab.metric.sheet_resistance
+    economic_hooks:
+      affects:
+      - yield
+      - rework_rate
+      - scrap_rate
+      - cycle_time
+      note: '介电层膜厚偏移直接改变层间电容与击穿裕度，金属层偏移改变方阻， 两者都要到 WAT/CP 才充分暴露，检出延迟长；且膜厚不足无法回补， 过厚只有少数层可靠 CMP 修正，多数情况下只能判废
+
+        '
+    provenance:
+      source_type: web
+      ref: https://doi.org/10.3390/molecules28227660
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

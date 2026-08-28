@@ -5,9 +5,8 @@ description: 半导体前段厂(Fab)/后段厂(AP)本体与知识库的构建、
 
 # semi-kb · 半导体前后段知识库主控
 
-本 skill 管理一个**本体驱动**的半导体制造知识库，遵循四层推演链路方法论
-（本体 → 知识库 → 经营模型 → 仿真引擎）。当前项目只实现前两层，
-第三层通过 `economic_hooks` 字段预留接口。
+本 skill 管理一个**本体驱动**的半导体制造推演链路，遵循四层方法论：
+本体 → 知识库 → 经营模型 → 仿真引擎。前两层提供领域事实与经验，第三层把物理参数翻译为经营指标，第四层运行干预场景并输出基线、干预和增量结果。
 
 ## 执行模型：全流程由当前 Agent 完成
 
@@ -57,6 +56,7 @@ build/      检索索引与图（派生产物，禁止手工编辑）
 | 为已有异常补写处置知识 | `kb-fill` | `prompts/kb-fill.md` |
 | 找资料、更新本体、产出变更提案 | `kb-refresh` | `prompts/kb-refresh.md` |
 | 校验一致性、重建索引 | `kb-validate` | `prompts/kb-validate.md` |
+| 测算经营结果、比较干预方案、算 ROI/回收期 | `simulation-run` | `scripts/simulate.py` |
 
 判断规则：
 
@@ -65,6 +65,7 @@ build/      检索索引与图（派生产物，禁止手工编辑）
 - 祈使句且概念已存在、要补经验 → `kb-fill`
 - 提到"更新""找资料""同步""定时" → `kb-refresh`
 - 提到"检查""校验""重建" → `kb-validate`
+- 提到"利润""成本""ROI""回收期""干预后会怎样" → `simulation-run`；先跑 `python3 scripts/simulate.py --check`，再运行指定场景。若输入来源含 assumption/model_prior，必须把结果称为情景推演，不得称为预测或经营承诺
 - 意图不明时默认 `kb-query`，因为回答问题不改动任何文件，是零风险选项。
 
 任何流程开跑前先跑 `python scripts/ask.py "<用户原问>"` —— 它按

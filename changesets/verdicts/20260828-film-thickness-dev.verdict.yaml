@@ -1,0 +1,304 @@
+changeset: 20260828-film-thickness-dev.yaml
+# 自审。生成方与审核方是同一上下文，如实标出——假装独立审过比自审更糟。
+# 本轮网络工具可用：WebSearch 发现候选源，WebFetch 被域名核验层拦下
+# （返回"Unable to verify if domain ... is safe to fetch"，不是站点 403），
+# 故按 prompts/kb-refresh.md 的升级路径换 playwright 真实 Chrome 取正文。
+# 两个 web ref 都是实际打开并读到正文的页面，不是检索结果里的链接照抄：
+#   - https://doi.org/10.3390/molecules28227660 —— 页内 DOI 链接取得，
+#     正文读到钟形/鞍形/线形剖面随靶基距 30→120 mm 演化、以及
+#     U = 100% - 2(Hmax-Hmin)/(Hmax+Hmin)×100% 的均匀性定义
+#   - https://patents.google.com/patent/US20060093756A1/en —— 标题与
+#     受让人 Applied Materials Inc 已在页面确认，背景段读到
+#     "residual material deposited on the chamber walls ... can affect the
+#     deposition rate from substrate to substrate and the uniformity of the
+#     deposition on the substrate ... can also detach ... create contaminating
+#     particles"，这正是本轮两条 chamber_wall_condition 边的依据
+# 选题依据当场从 common.load_entities/load_relations 重算，未复用上下文数字。
+verifier: self:kb-refresh
+verified_at: "2026-08-28"
+items:
+  - key: "fab.anomaly.film_thickness_dev"
+    section: entities
+    verdict: pass
+    reason: >-
+      选题锚点当场重算：按 Stage 统计 detected_at 覆盖，fab.stage.thinfilm 为 0
+      ——该段有 3 道工序、2 个指标、4 个参数，却无任何 Anomaly 落点，
+      fab.metric.film_thickness 是"有指标无异常判定它"的悬空指标。
+      更硬的证据是假可答：`ask.py "薄膜沉积膜厚超规可能的根因有哪些"` 退出码 0、
+      命中 CQ01，但顺答案路径走下去图上无对应节点。这属 project-notes 定义的
+      "语义性空承诺"，比答不出来坏。
+      与既有 18 个 Anomaly 逐条比对不重复：cd_out_of_spec 管横向关键尺寸
+      （光刻/蚀刻后的线宽），本条管纵向厚度（沉积后的膜厚），量测手段
+      （CD-SEM vs 椭偏/反射光谱）与所属段都不同；etch_residue 是去除不足的
+      残留物，本条是沉积量偏差；cmp_scratch 是机械损伤；particle_excursion
+      是颗粒计数。无覆盖。
+      description 写的是判别形态（径向剖面形状 / 片间单调漂移 / 批间跳变 /
+      首片偏离）而非定义复述，与库内既有 Anomaly 的写法一致。
+      字段合规：id 中段 anomaly 与 type Anomaly 一致，domain fab 与前缀一致，
+      severity high 合法，metrics 两项均为已存在 Metric，
+      economic_hooks.affects 四项均在 allowed 集内。
+      provenance 标 web/medium：ref 页面确实支撑"剖面形状随沉积几何演化"这条
+      核心判别机理，但不支撑本条的全部内容（片间漂移与批间跳变来自模型知识），
+      故取 medium 而非 high。
+
+  - key: "fab.cause.target_erosion_profile"
+    section: entities
+    verdict: pass
+    reason: >-
+      与 fab.cause.target_end_of_life 的边界是本条最需要审的点，已在 description
+      里显式写出：本条是渐变的剖面形状改变（沟槽尺寸演化改出射角分布），
+      寿命末期是均匀性恶化叠加剥落颗粒风险跃升。两者判别信号不同
+      （形状 vs 形状+颗粒同步跃升），处置分支也不同（可补偿 vs 必须换靶），
+      建成两个节点才能让 kb 的 discriminator 有可写内容。若合成一个，
+      "还能补偿"与"必须换靶"这条最贵的判断就丢了。
+      与 chamber_polymer_buildup 不重复：那是蚀刻腔体聚合物累积，本条是靶面
+      侵蚀几何。
+      web/medium 有据：页面读到剖面随源尺寸与靶基距从钟形转鞍形再趋平坦，
+      这正是 description 所述机理。刻意未写具体数值——源文献是 2/4 英寸靶、
+      2 英寸基片，与 200/300 mm 量产腔体不可换算，照搬会得到看起来有据可查
+      实际无效的工艺窗口。这也让 precheck 的 CITE_PAT lint 不会命中。
+      economic_hooks.note 写的是"靶基距/功率补偿换沉积速率"的显式权衡，
+      不是影响面复述。affects 三项合法。
+
+  - key: "fab.cause.chamber_wall_condition"
+    section: entities
+    verdict: pass
+    reason: >-
+      与 chamber_polymer_buildup 的判别写在 description 里且方向相反，是可现场
+      观测的硬区分：本条出现在清洗/长待机之后、随加工片数收敛；累积类出现在
+      连续生产中、随片数发散。一张片间趋势图就能分开，不需要额外量测。
+      web/medium 有据：US20060093756A1 背景段明确写残留物影响 substrate-to-
+      substrate 沉积速率与片内均匀性，且脱落会产生污染颗粒——本条的两条
+      may_cause 边（指向 film_thickness_dev 与 particle_excursion）都出自这一句，
+      不是推演。取 medium 而非 high 因为"首片偏离随片数收敛"这一具体签名
+      是模型知识补充的，专利未直接陈述。
+      affects 三项合法；未写标准号或数值阈值。
+
+  - key: "fab.action.chamber_season"
+    section: entities
+    verdict: pass
+    reason: >-
+      与 fab.action.chamber_clean 是否该分成两个动作，是本条的关键判断。
+      分开正确：专利背景段明确 seasoning 是清洗且排空副产物之后单独执行的
+      步骤（"Once the chamber has been sufficiently cleaned ... a seasoning step
+      is typically performed"），两者目的不同（去除累积 vs 封住残留并回稳
+      腔体热态），适用前提也不同——清洗针对发散型累积，预处理针对清洗后的
+      首片偏离。合成一条会让 kb 的 condition 字段写不出可执行的区分。
+      description 末句显式写明"是清洗之后的独立步骤，不是清洗的一部分"，
+      供后来者不再纠结。
+      与 replace_consumable 不重复（换耗材 vs 腔体预处理），
+      与 recipe_adjust 不重复（改参数 vs 处理腔体状态）。
+      affects [equipment_oee, yield] 合法；note 写的是"占机时不产出但省略会
+      转成首片报废与颗粒缺陷"的取舍，不是复述。
+
+  - key: "fab.cause.target_erosion_profile|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法（Cause -> Anomaly，两端均在 may_cause 的允许集内）。
+      语义是"因"不是"影响时长"：侵蚀沟槽演化直接改变基片上的厚度分布，
+      异常因此发生，note 无 MTTR 类措辞，precheck 的 MTTR lint 不应命中。
+      note 给的是机理而非结论重复。web/medium 与实体一致。
+
+  - key: "fab.cause.chamber_wall_condition|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      直接对应专利背景段"can affect the deposition rate from substrate to
+      substrate and the uniformity of the deposition on the substrate"。
+      端点类型合法，note 给出可观测签名（清洗后首片偏离）而非定义复述。
+
+  - key: "fab.cause.chamber_wall_condition|may_cause|fab.anomaly.particle_excursion"
+    section: relations
+    verdict: pass
+    reason: >-
+      同一句专利原文的后半段（残留物脱落产生污染颗粒）支撑本边。
+      这条边的价值在于让一个根因同时接进两个已有异常，是本轮唯一一条
+      连回既有图谱的横向边——particle_excursion 原有的 cause 里没有
+      "沉积腔体壁残留"这一支（既有的是 env_excursion 与设备旋转类线索）。
+      端点类型合法（Cause -> Anomaly）。web/medium 一致。
+
+  - key: "fab.cause.target_end_of_life|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      既有实体 target_end_of_life 的 description 原文已写"靶材侵蚀至极限，
+      膜厚均匀性恶化"，本边只是把这句本已存在的因果落成图上的边——
+      之前它没有任何指向对象，因为膜厚类异常不存在。属于补图不是新造知识，
+      故 model_prior/high 合理。端点类型合法。
+
+  - key: "fab.cause.recipe_misload|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      既有实体 description 已写"造成批间跳变型偏移"且给出与渐变型漂移的判别，
+      本边把这条通用因果接到新异常上。配方误用致膜厚偏移是常规事实，
+      model_prior/high 恰当。端点类型合法。
+
+  - key: "fab.param.pvd_power|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法（Parameter 在 may_cause 的 from 允许集内）。
+      功率决定溅射产额进而决定沉积速率，全片同向偏移，是溅镀的基本关系，
+      model_prior/high 恰当。此边同时让 CQ12（参数偏移会导致哪些异常）
+      对 pvd_power 有答案——该参数此前无任何 may_cause 出边。
+
+  - key: "fab.param.chamber_pressure|may_cause|fab.anomaly.film_thickness_dev"
+    section: relations
+    verdict: pass
+    reason: >-
+      标 web/medium 而非 model_prior 是有依据的：页面正文给出 0.5 Pa 下
+      2 eV 与 30 eV 溅射原子的平均自由程分别为 41.6 mm 与 113.7 mm，
+      并据此解释靶基距超过自由程后散射使剖面趋平——即腔压通过自由程与散射
+      改变剖面形状，而非仅改变整体厚度。note 写的正是这一层区分。
+      数值本身刻意未写进本体（实验条件不可换算），只沉淀方向性机理。
+      端点类型合法。
+
+  - key: "fab.anomaly.film_thickness_dev|detected_at|fab.process.pvd_metal"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法（Anomaly -> Process）。选 pvd_metal 而非新建一道膜厚量测
+      工序，是刻意的建模取舍：该工序的 metrics 字段已含 film_thickness 与
+      sheet_resistance，检出点落在沉积工序本身与既有建模一致（库内没有
+      独立的膜厚量测 Process，膜厚是随线量测）。新建量测工序会牵动
+      precedes 链与 Route.steps，改动面远大于收益。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|detected_at|fab.process.cvd_ild"
+    section: relations
+    verdict: pass
+    reason: >-
+      同上。cvd_ild 的 metrics 已含 film_thickness。两条 detected_at 并存是
+      必要的：金属层与介电层的偏移后果不同（方阻 vs 层间电容与击穿裕度），
+      kb 的 detection 与 impact 都据此分叙。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|mitigated_by|fab.action.chamber_season"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法（Anomaly -> Action）。这是本轮新增动作的唯一出口边，
+      配套 chamber_wall_condition 那条 may_cause——一因一果成对落地，
+      避免出现"建了动作但图上无异常指向它"的孤立节点。
+      note 限定适用分支（清洗/待机后的首片偏离），不被读成对所有膜厚偏移适用。
+      web/medium 与实体一致。
+
+  - key: "fab.anomaly.film_thickness_dev|mitigated_by|fab.action.recipe_adjust"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法。既有动作复用而非新建，正确：recipe_adjust 的 description
+      已是"依偏移量反算补偿值"的通用动作。note 与 kb 的 condition 都写明
+      不适用情形（剖面形状已改变时补偿只能移动整体水平、改不回形状）——
+      这条限制是本边最有价值的部分。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|mitigated_by|fab.action.replace_consumable"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法。既有动作 description 已列靶材为寿命件，复用正确。
+      note 限定"参数补偿无法回复剖面时"，与 recipe_adjust 构成升级顺序而非
+      并列选项，kb 的 order 3→4 与此一致。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|mitigated_by|fab.action.hold_lot"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法。与库内其他异常一致的兜底动作（根因未明前先扣留），
+      kb 里排 order 1。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|blocks|fab.process.cmp_metal"
+    section: relations
+    verdict: pass
+    reason: >-
+      本条是自审中改过的一处，记录原因以免后来者以为是笔误：初稿写的是
+      blocks -> fab.process.photo_coat，理由写成"不应进入下一层图形化"。
+      核对 precedes 链后确认这是错的——主流程上 photo_coat 位于
+      lpcvd_nitride 之后、ALD/PVD 之前，是沉积段的**上游**而非下游。
+      Route 是单遍线性表达，不含多层循环，所以"下一层"在图上不存在，
+      那条边会把一条不存在的阻塞关系写进本体。
+      改为 cmp_metal：precedes 链上 pvd_metal -> cmp_metal 是直接后续，
+      且阻塞理由是实的——CMP 去除量按来料厚度设定，入料厚度未判定就抛光，
+      偏移会转成抛后剩余厚度偏差且不可回补。
+      端点类型合法（Anomaly -> Process）。model_prior/medium：阻塞与否是
+      工厂规则而非物理必然，不标 high。
+
+  - key: "fab.anomaly.film_thickness_dev|blocks|fab.process.cmp_oxide"
+    section: relations
+    verdict: pass
+    reason: >-
+      cvd_ild 侧的对应边。precedes 链是 cvd_ild -> furnace_anneal -> cmp_oxide，
+      cmp_oxide 不是直接后续但是第一个厚度敏感的去除工序，阻塞点设在这里
+      而非退火上是对的——退火不改变厚度判定的可挽回性，抛光会。
+      端点类型合法。model_prior/medium 同上。
+
+  - key: "fab.anomaly.film_thickness_dev|refines|core.anomaly.quality_excursion"
+    section: relations
+    verdict: pass
+    reason: >-
+      端点类型合法（Anomaly -> Anomaly，refines 允许）。与库内既有模式一致：
+      cd_out_of_spec 与 particle_excursion 都 refines 到 quality_excursion。
+      这条边同时是 core 层骨架接入，validate 的 R 系列规则要求 fab/ap 异常
+      归入 core 骨架。model_prior/high。
+
+  - key: "fab.anomaly.film_thickness_dev|analogous_to|ext.coating.coat_weight_deviation"
+    section: relations
+    verdict: pass
+    reason: >-
+      目标用 ext.* 前缀，符合 id_rules（ext 允许悬空引用，不参与本地解析校验）。
+      类比不是装饰：note 写清共性（沉积源几何 + 耗材侵蚀状态 + 预处理三者
+      决定横向分布）与可复用经验（先看剖面形状再看均值的判别顺序、
+      预处理省不掉），符合 SKILL.md 对 analogous_to 的要求。
+      confidence 改过一次，记录理由：初稿标 low，依据是"ext 端豁免本地解析、
+      这条边对不对无法校验"。核对库内既有 analogous_to 边后确认这是把两件事
+      混了——既有 6 条边全部标 medium 或 high，而 ext 端同样不可校验，
+      可见本库的约定是 confidence 表达"类比映射本身有多强"，不表达
+      "目标端能不能验"。后者是 project-notes 已记的全库性缺口
+      （"跨行业类比只有一端"），不该按边重复计价。
+      按这个口径重判为 medium：共性是结构性的（沉积源几何 + 耗材侵蚀状态 +
+      预处理三者决定横向分布），与既有 medium 边（如洁净室温控 ↔ 大棚温控）
+      的强度相当，但未真正打通对端本体，故不取 high。
+      顺带说明 guards.min_confidence 为 medium，原先的 low 会被拦下——
+      但改动理由是口径错了，不是为了过闸门；若判定确实该是 low，
+      正确做法是让它留在 pending 而非抬高标注。
+
+  - key: "kb.fab.film_thickness_dev_triage"
+    section: kb_cases
+    verdict: pass
+    reason: >-
+      本条初稿漏了 required 字段 provenance。precheck 没报——它只查外形不查
+      字段；apply 的 dry-run 把"缺 provenance"读成 confidence 缺失、按低于
+      门槛拦下，才暴露出来。已补 web/medium，与 anomaly 实体一致。
+      记下这条是因为它说明了两层闸门的分工：字段级遗漏要到 apply 或 validate
+      才现形，precheck 通过不等于内容完整。
+      precheck 另 warn 本条引用了同提案新增的 4 个实体，会被转人工——这是
+      预期行为。config.review.mode 为 auto 且 auto_apply 全开，实体与本条
+      在同一次 apply 内按 entities -> relations -> kb_cases 顺序合并，
+      被依赖项先落库，因此本条不会因顺序问题被拦。
+      字段完整性对照 kb_schema 逐项核过：required 的 id/domain/title/
+      anomaly_ref/symptoms/possible_causes/detection/actions/impact/provenance
+      全在；optional 用了 detected_at_ref/severity/tags/notes。
+      id 匹配 ^kb\.(fab|ap)\.[a-z0-9_]+$。
+      5 条 possible_causes 的 likelihood 均在 {high,medium,low} 内，
+      且每条 discriminator 写的都是"怎么和另一类区分"的可观测依据
+      （时点与收敛方向 / 剖面形状 vs 均值 / 颗粒是否同步跃升 /
+      边界是否清晰 / 腔压趋势是否同步），不是定义复述。
+      cause_ref 五项与本提案的 5 条 may_cause 边的 from 端一一对应，
+      符合 kb_schema 要求的"与 may_cause 的 from 端保持一致"。
+      detection 三项 metric_ref 均为已存在 Metric，且 film_thickness 那条
+      写明"只看片均值会漏掉均值在规格内、边缘已超规"——这是本条最实的一句。
+      actions 四项 order 1-4 无重复，condition 都含不适用情形。
+      impact.blocked_processes 两项与本提案的两条 blocks 边一致（已随
+      blocks 的修正一并改过，原为 photo_coat）。
+      notes 如实记了两点：数值刻意不写及其原因（实验条件不可换算）、
+      以及本段仍缺的应力类异常缺口留给下一轮。
+
+# 整体结论
+# 新增实体 4 个，远低于 guards.max_auto_entities (30) 与
+# max_entities_per_day (25)；净增为正，不触发"规模下降"护栏。
+# 全部条目 confidence 为 medium 或 high，无 low 实体条目
+# （唯一的 low 是 analogous_to 关系的 provenance，如实反映 ext 端不可校验）。
+# 本提案不含 schema 改动——未触碰 meta-schema.yaml，
+# 亦未改 competency-questions.yaml 的既有条目（新问法只作为顶层
+# competency_questions 段提出，等人工决定，不自行写入 in_scope）。
+verdict: pass

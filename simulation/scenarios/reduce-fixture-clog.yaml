@@ -1,0 +1,10 @@
+schema_version: "2.0"
+scenario:
+  id: sim.ap.reduce_fixture_clog
+  name: 降低植球治具孔位堵塞
+  model_ref: business/models/ap-baseline.yaml
+  description: 具体 AP 场景插件：只声明干预，不复制经营模型。
+  interventions:
+    - {target_ref: ap.anomaly.missing_ball, variable: ball_placement_yield, operation: set, value: 0.996}
+    - {target_ref: ap.action.clean_placement_fixture, variable: intervention_opex, operation: set, value: 30000}
+  investment: {one_time: 120000, unit: CNY}

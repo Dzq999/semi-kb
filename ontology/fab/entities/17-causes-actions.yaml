@@ -339,3 +339,68 @@ entities:
       confidence: medium
       created_at: '2026-08-28'
       reviewed_by: null
+  - id: fab.cause.target_erosion_profile
+    type: Cause
+    name_zh: 靶材侵蚀轮廓演化
+    name_en: Target Erosion Groove Evolution
+    domain: fab
+    description: '磁场把等离子体约束在闭合跑道区，靶面被局部而非均匀溅蚀，随使用 形成并加深侵蚀沟槽。沟槽尺寸变化会改变有效溅射源的几何与出射角 分布，从而改变基片上的膜厚径向剖面——文献中随源尺寸/靶基距变化
+      可从中心厚的钟形转为边缘厚的鞍形，再趋于平坦。与靶材寿命末期的 判别在于：本项是渐变的剖面形状改变，寿命末期是均匀性恶化叠加 剥落颗粒风险跃升。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - cost_per_unit
+      - equipment_oee
+      note: '可用靶基距或功率补偿一段时间，代价是沉积速率下降（产能）； 换靶恢复剖面但消耗耗材成本与停机时间——这是耗材利用率与 均匀性之间的显式权衡点
+
+        '
+    provenance:
+      source_type: web
+      ref: https://doi.org/10.3390/molecules28227660
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.cause.chamber_wall_condition
+    type: Cause
+    name_zh: 腔体壁沉积状态未预处理
+    name_en: Unconditioned Chamber Wall State
+    domain: fab
+    description: '清洗后未做 seasoning、或 seasoning 膜与后续制程不匹配时，腔体内壁与 零件的残留状态会同时影响片间沉积速率与片内均匀性，残留物脱落还会 转为颗粒污染。表现签名是清洗或长时间待机后的首片偏离、随后逐片
+      回稳。与腔体聚合物累积的判别在于时点与方向：本项出现在清洗/待机 之后且随加工片数收敛，累积类出现在长时间连续生产中且随片数发散。
+
+      '
+    economic_hooks:
+      affects:
+      - yield
+      - equipment_oee
+      - cost_per_unit
+      note: 'seasoning 消耗机时与气体但不产出产品，属显式的良率换产能取舍； 省掉它换来的产能会以首片报废和颗粒风险的形式还回去
+
+        '
+    provenance:
+      source_type: web
+      ref: https://patents.google.com/patent/US20060093756A1/en
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: fab.action.chamber_season
+    type: Action
+    name_zh: 腔体预处理（seasoning）
+    name_en: Chamber Seasoning
+    domain: fab
+    description: '清洗后按制程配方在腔体内壁与零件上沉积一层预处理膜，封住残留 污染物并使腔体热态与沉积环境回到稳态，之后跑验证片确认膜厚与 均匀性恢复再放行量产。是清洗之后的独立步骤，不是清洗的一部分。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - yield
+      note: 占用机时且不产出，但省略它会把成本转移成首片报废与颗粒缺陷
+    provenance:
+      source_type: web
+      ref: https://patents.google.com/patent/US20060093756A1/en
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
