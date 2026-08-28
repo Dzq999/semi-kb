@@ -1,7 +1,21 @@
 # 子流程：kb-refresh
 
-自动找资料、扩充本体与知识库。这是下周起交给定时任务的入口。
+自动找资料、扩充本体与知识库。定时任务的入口。
 **产出变更提案，不直接写本体。**
+
+## 执行约束：当前 Agent 全流程自办
+
+本流程的每一段——选题、取材、建模、写 changeset、自审、合并、验证——
+都由当前 Agent 顺序完成。**不得启动 SubAgent / 子代理**，流程里也没有
+"另一个代理来独立审"这一环。需要复核就由当前 Agent 按下面的检查清单
+重新读一遍相关文件，再判一次。
+
+分工只在"脚本 vs 当前 Agent"之间划：
+
+- **确定性检查归脚本** —— `precheck.py` 查提案外形与提案内依赖，
+  `validate.py` 查合并后的全库一致性。这两层是可离线复跑的硬闸门。
+- **需要判断的部分由当前 Agent 自审** —— verdict 的 `verifier` 写
+  `self:kb-refresh`，如实标明是自审。
 
 ## 为什么走提案而不直接写
 
@@ -10,29 +24,17 @@
 清理成本远高于当初拦下来。changeset 机制把"生成"与"落库"分开，
 让审核策略可配置，也让每次变更留下可回溯的记录。
 
-## 开跑前先确认环境
+## 网络策略
 
-四项都在首次实跑时真实卡过，全部会让流程在第二段断掉。
+**直接取正文，先不要诊断网络。** 全局代理已验证可达目标页
+（curl 返回 code 200、ssl 校验通过），所以 WebFetch / HTTPS 直取是默认动作。
+只有在真的失败之后才去看代理与证书。
 
-**WebSearch 可用。** 网关故障时返回 503 而不是空结果
-（实测过 `分组 claude-code企业级 下模型 xxx 无可用渠道`）。
-第一段无可替代——playwright 只能去已知地址，不能发现地址。
-WebSearch 挂了就等它恢复，别用猜测的 URL 顶替。
-成功响应里不含后端模型信息，想确认路由要看网关侧日志。
+**够用即停。** HTML 正文能支撑要写的条目就停手，通常 1-2 个关键来源足够。
+不要为凑数继续检索。
 
-**playwright MCP 在当前工作目录可见。** `claude mcp list` 若返回
-`No MCP servers configured`，说明它注册在别的目录作用域下。
-用 `claude mcp add-json playwright '<json>' -s user` 注册到 user scope
-（`claude mcp add ... -- npx -y ...` 里的 `-y` 会被 CLI 当自己的选项吃掉，报
-`unknown option '-y'`，必须用 `add-json`）。
-**注册后必须重启会话**——MCP 工具列表在启动时固定，不重启工具不进列表。
-
-**浏览器可用。** `%LOCALAPPDATA%\ms-playwright` 下的 `mcp-chrome-*`
-是 userDataDir（Chrome 用户配置），不是浏览器安装，没有 `chrome.exe`
-和 `INSTALLATION_COMPLETE` 是正常的。用 `--browser chrome` 走系统 Chrome
-最省事。不要因为它们缺少安装标记就判断浏览器坏了。
-
-**cwd 有 `.gitignore` 忽略 `.playwright-mcp/`。** 见下文第二段说明。
+**升级路径。** WebFetch 返回 403 或页面需要 JS 渲染时才换 playwright；
+PDF 一律走本地解析（见第三段）。
 
 ## 步骤
 
@@ -53,10 +55,8 @@ WebSearch 挂了就等它恢复，别用猜测的 URL 顶替。
 重算一次的成本是几秒，用错数字的成本是一条建错的知识。
 
 优先挑图上已经连得好、但没有 kb 实例的异常：关系越多说明它在风险图谱里
-越关键，缺处置知识的空洞也越显眼。首次实跑挑的 `ap.anomaly.delamination`
-就是这类——风险图谱里 cause、detected_at、mitigated_by、blocks 都齐，
-severity high，还被另一条 kb 实例当上游原因引用，
-但排查指过来之后没有任何处置内容。
+越关键，缺处置知识的空洞也越显眼。典型形态是 cause、detected_at、
+mitigated_by、blocks 都齐、severity 偏高，但排查指过来之后没有处置内容。
 
 只新增 kb 实例、不碰实体与关系的提案能走 `auto_apply.instances` 自动合并，
 是验证全流程最省事的选题类型。
@@ -87,9 +87,8 @@ severity high，还被另一条 kb 实例当上游原因引用，
 WebFetch 一次往返就够，优先用。它拿不到时再上 playwright——
 起 Chrome、快照可能很大，成本高得多，当后备。
 
-标准组织站点常拦 WebFetch。实测 `jedec.org` 的标准页对 WebFetch 返回
-403 Forbidden，playwright 用真实 Chrome 正常取到正文。
-遇到 403 不要放弃这个源，换 playwright 再试一次。
+标准组织站点常拦 WebFetch 并返回 403。遇到 403 不要放弃这个源，
+换 playwright 的真实 Chrome 再试一次。
 
 playwright 会在**当前工作目录**落 `.playwright-mcp/`（页面快照与 console 日志）。
 用完删掉，否则会随提案一起污染仓库。
@@ -116,7 +115,7 @@ for i, pg in enumerate(doc):
 
 ### 记 provenance 时的三个坑
 
-实跑中都真实遇到过，都会产生"看起来可核查、实际错"的溯源：
+三者都会产生"看起来可核查、实际错"的溯源：
 
 **数值的出处可能不是你搜的那个标准。** MSL floor life 表出自
 IPC/JEDEC **J-STD-033**（管搬运、储存、floor life），不是 J-STD-020
@@ -134,7 +133,7 @@ playwright 静默跟随，WebFetch 会把重定向抛出来要求重发。
 
 ### 依赖
 
-PyMuPDF（`import fitz`）。当前环境已装 1.26.5。
+PyMuPDF（`import fitz`）。当前环境已装。
 不在则 `pip install pymupdf`，或退回只引 HTML 页面的概述、
 不引 PDF 里的具体数值。**拿不到数值就不要写数值**，
 写个大概区间比空着更糟——它看起来像有据可查的。

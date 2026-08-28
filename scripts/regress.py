@@ -5,7 +5,7 @@
     python scripts/regress.py --json
 
 两份夹具必须一起跑，缺一份都能被糊弄过去：
-  questions-real.txt       58 条真实工厂问法，绝大多数期望 refuse。防误报。
+  questions-real.txt       真实工厂问法，绝大多数期望 refuse。防误报。
   questions-type-level.txt 本体本来该答的问法，多数期望 answerable。防误拒。
 只跑前者的话，把 ask.py 改成永远返回 3 就能满分。
 
@@ -37,8 +37,8 @@ def load(path: Path) -> list[tuple[str, str]]:
 
 
 def load_context() -> dict:
-    """本体只加载一次。原先每题起一个 Python 进程重读一遍，上百题就是上百次
-    冷启动 + 上百次 YAML 解析，几秒的判定被拖成几分钟。
+    """本体只加载一次。每题起一个 Python 进程重读一遍会把几秒的判定拖成
+    几分钟：上百次冷启动 + 上百次 YAML 解析。
 
     只加载 cq 与 entities：regress 从不传 --probe，graph.json 与 kb 实例
     在这条路径上用不到，不必读。

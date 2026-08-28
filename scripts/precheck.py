@@ -1,4 +1,4 @@
-"""提案落库前的形状检查。只查 validate.py 看不到的东西。
+"""提案落库前的形状检查。只查 validate.py 看不到的内容。
 
     python scripts/precheck.py                              # 查 pending/ 下全部
     python scripts/precheck.py changesets/pending/x.yaml     # 查单份
@@ -6,31 +6,12 @@
 
 退出码：0 无 error｜1 有 error（不应落库）｜2 用法/文件错误
 
-## 为什么这个脚本很短
+检查范围：
+- changeset/additions/target_file 等提案外形，避免 apply 静默跳过；
+- 提案内部依赖，提示新增实体导致的审核顺序影响；
+- provenance、因果措辞与 KB 图边的轻量 lint，只报 warn。
 
-它曾经是 719 行，把 validate.py 的 R001-R011、R014 在提案结构上重写了一遍。
-那是重复：apply_changeset.py 的合并是原子的（追加 -> 立即跑 validate ->
-失败则从备份回滚），所以任何 validate 能查的规则，落库时一定会被查到，
-提案里的字段级错误最坏结果是"合并后校验失败并自动回滚"，代价约 1 秒。
-
-花几百行去提前 1 秒发现同一件事，换来的是两份实现各自漂移的风险——
-同一条规则改了 validate 忘了改 precheck，就会出现"提案说没问题、落库说有问题"
-或者更糟的反向。所以那部分全删了。
-
-留下的只有一类：**validate.py 结构上不可能看到的东西**。
-
-  顶层键写错     apply_changeset 找不到 target_file 就打印一行"跳过"然后继续，
-                 结论是"自动放行 0 条"，**退出码 0**。定时任务只看退出码会
-                 以为成功，实际什么都没合并。这是全链唯一能静默骗过自动化的
-                 失败模式，validate 看的是已落库的库、根本不会被调用。
-  提案内部依赖   同一份提案里 kb_case 引用本提案新增的实体，落库顺序错了会
-                 产生瞬时悬空引用。validate 只看最终状态，看不到顺序。
-  三类判断线索   下面 LINTS 那几条，都是历次审核真实抓到过的模式，
-                 用正则能提前标出来。只报 warn，不阻断。
-
-派生关系合法性已经移进 validate.py 的 check_derived()——那条规则的正确位置
-就是全库校验，不是提案预检。
-
+validate.py 负责合并后的全库字段、引用、关系和一致性校验；本脚本不重复实现。
 本脚本只读，可离线复跑。
 """
 from __future__ import annotations
@@ -46,13 +27,9 @@ import common as C  # noqa: E402
 
 SECTIONS = ("entities", "relations", "kb_cases")
 
-# 三类 lint。都只报 warn：是"值得看一眼"的线索，不是铁定违规。
-# 判成 error 会把正当写法也拦住，而误报会让人学会忽略输出。
-#
-# 每条都对应一次真实的审核发现，没有凭想象加的规则：
+# 三类 lint 都只报 warn：是"值得看一眼"的线索，不是铁定违规。
 
-# 上一轮 fab.cause.spare_part_shortage 自述"不引发停机，但决定停机持续多久"
-# 却用 may_cause 指向异常——它影响 MTTR，不决定异常是否发生。已被 reject。
+# 时长类措辞配 may_cause：影响 MTTR，不决定异常是否发生。
 MTTR_WORDS = ("持续多久", "持续时长", "修复时长", "停机时长",
               "恢复时间", "维修时长", "MTTR")
 

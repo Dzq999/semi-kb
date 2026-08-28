@@ -2,29 +2,31 @@
 
     python scripts/daily_refresh.py                # 完整跑一次
     python scripts/daily_refresh.py --dry-run      # 只跑到生成提案，不落库
-    python scripts/daily_refresh.py --skip-agent   # 不调 agent，只落已有 pending 提案
+    python scripts/daily_refresh.py --skip-agent   # 跳过生成步骤，只落已有 pending 提案
+
+这里的 "agent" 一律指本脚本用 claude CLI 无头拉起的**当前 Agent 生成步骤**
+（第 3 段），不是 SubAgent / 子代理。semi-kb 的流程没有任何子代理参与：
+生成、自审、合并、验证都在同一个执行体里顺序完成。
 
 流水线，任一段失败就整次回滚到开跑前的提交：
 
   1. 前置检查   工作区干净、脚本齐、基线自己就通过（kb.py check --quick）
   2. 快照      记下开跑前的 commit，这是回滚点
-  3. 生成      调 claude CLI 无头跑 prompts/kb-refresh.md，产出 changesets/pending/*.yaml
+  3. 生成      当前 Agent 生成步骤：claude CLI 无头跑 prompts/kb-refresh.md，
+               产出 changesets/pending/*.yaml
   3b. 闸门     precheck.py 查提案形状，ERROR 则不进落库（未合并故不回滚）
   4. 落库      apply_changeset.py 按 config.review 自动合并（它自带原子回滚）
   5. 护栏      净增实体数与增长比例不超 config.review.guards 的上限
   6. 验证      kb.py check 全链
   7. 提交      全过则 git commit；任一段失败则 git reset --hard 回到第 2 段的点
 
-第 1 段与第 6 段都委托给 kb.py check，不在本文件里重排 validate/build_index/
-regress 的顺序。顺序只在一处定义，手动跑和无人值守跑同一条链。
+第 1 段与第 6 段都委托给 kb.py check，顺序只在一处定义，手动跑和无人值守
+跑同一条链。护栏放在这一层是因为 apply_changeset 只看单个提案，看不到
+"今天累计加了多少"。
 
-为什么护栏放在这一层而不是 apply_changeset：
-后者只看单个提案合不合规，看不到"今天已经加了多少"。跑飞的形态不是某一条
-写错，是连着几天每天加 40 条没人看，两周后库里一半内容没人认得。
-
-回滚的已知边界：reset --hard 收不回未跟踪文件（实测确认）。新建在 ontology/
-下的文件回滚后仍在库里，靠下一轮前置检查的 require_git_clean 拦住，
-不会静默累积但需要人处置。详见 rollback() 的说明。
+回滚的已知边界：reset --hard 收不回未跟踪文件。新建在 ontology/ 下的文件
+回滚后仍在库里，靠下一轮前置检查的 require_git_clean 拦住，不会静默累积
+但需要人处置。详见 rollback() 的说明。
 
 退出码：0 成功（含"无事可做"）| 1 失败已回滚 | 2 前置检查未过（未做任何改动）
 """
@@ -42,7 +44,7 @@ import yaml
 import common as C
 
 LOG_DIR = C.ROOT / "logs"
-AGENT_TIMEOUT = 3600          # agent 单次最多跑 1 小时
+AGENT_TIMEOUT = 3600          # 生成步骤单次最多跑 1 小时
 GIT = ["git", "-C", str(C.ROOT)]
 
 
@@ -85,7 +87,7 @@ def preflight(guards: dict, skip_agent: bool) -> str | None:
 
     if guards.get("require_git_clean", True):
         r = run([*GIT, "status", "--porcelain"])
-        # changesets/ 与 logs/ 不算脏：agent 先产出提案再调本脚本是正常顺序
+        # changesets/ 与 logs/ 不算脏：先产出提案再调本脚本是正常顺序
         # （--skip-agent 那条路径就是这样），把它们算进去会让流程一开跑就卡住。
         # ontology/ kb/ 之外的改动不影响回滚的正确性——reset --hard 一样能收。
         dirty = [l for l in r.stdout.strip().splitlines()
@@ -114,11 +116,11 @@ def preflight(guards: dict, skip_agent: bool) -> str | None:
                             r.stdout.strip().splitlines()[-10:]))
 
     if not skip_agent and not (C.ROOT / "prompts" / "kb-refresh.md").is_file():
-        return "缺少 prompts/kb-refresh.md，agent 没有可执行的流程"
+        return "缺少 prompts/kb-refresh.md，生成步骤没有可执行的流程"
     return None
 
 
-# ---------- 3. 生成：调 agent ----------
+# ---------- 3. 生成：当前 Agent 生成步骤 ----------
 
 AGENT_TASK = """按 prompts/kb-refresh.md 执行一次自动扩充，无人值守模式。
 
@@ -141,15 +143,18 @@ AGENT_TASK = """按 prompts/kb-refresh.md 执行一次自动扩充，无人值�
    changeset.created_at 与所有 provenance.created_at 一律写 {today}。
    不要从既有 changesets 的文件名往后推一天——那会让时间线每轮偏移一天，
    越跑越远，事后完全无法按日期审计知识是什么时候进来的。日期以本行为准。
+9. **整轮由你自己顺序做完，不要启动 SubAgent / 子代理。** 选题、取材、建模、
+   写 changeset、自审都在同一个执行体里完成；需要复核就按 prompts/kb-refresh.md
+   的清单重新读一遍文件再判。verdict 的 verifier 标 self:kb-refresh。
 
 跑完只回一句话：产出了几个提案文件、各自新增多少条、选题是什么。
 """
 
 
 def run_agent(max_ent: int) -> tuple[bool, str]:
-    # 日期必须显式注入。不注入时 agent 只能从既有 changesets 的文件名推断，
-    # 实测会按"上一份是 0827，那这份就 0828"每轮 +1，时间线逐日漂移，
-    # 而 created_at 一旦写错就失去按日期审计知识来源的能力。
+    """拉起当前 Agent 的生成步骤（claude CLI 无头）。不是派 SubAgent。"""
+    # 日期必须显式注入：否则只能从既有 changesets 的文件名往后推，
+    # 时间线会逐轮漂移，created_at 写错就失去按日期审计知识来源的能力。
     now = datetime.now()
     task = AGENT_TASK.format(max_ent=max_ent,
                              today=f"{now:%Y-%m-%d}",
@@ -158,13 +163,13 @@ def run_agent(max_ent: int) -> tuple[bool, str]:
            "--permission-mode", "acceptEdits",
            "--add-dir", str(C.ROOT),
            "--output-format", "json"]
-    log(f"调 agent（超时 {AGENT_TIMEOUT}s，权限 acceptEdits）")
+    log(f"启动生成步骤（超时 {AGENT_TIMEOUT}s，权限 acceptEdits）")
     try:
         r = run(cmd, timeout=AGENT_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return False, f"agent 超时（{AGENT_TIMEOUT}s）"
+        return False, f"生成步骤超时（{AGENT_TIMEOUT}s）"
     if r.returncode != 0:
-        return False, f"agent 退出码 {r.returncode}：{(r.stderr or r.stdout)[-600:]}"
+        return False, f"生成步骤退出码 {r.returncode}：{(r.stderr or r.stdout)[-600:]}"
     try:
         d = json.loads(r.stdout)
         return True, str(d.get("result", ""))[:800]
@@ -202,7 +207,7 @@ def gate_pending() -> str | None:
                     日志只显示"自动放行 0 条"。定时任务看到 0 就以为成功了，
                     实际每天空跑。precheck 把它变成显式 ERROR。
       格式违规 —— 进了 apply 才发现就要 rollback 整轮，丢掉的是
-                  上游几十分钟的 agent 时间。
+                  上游几十分钟的生成时间。
 
     只在 ERROR 时阻断。WARN 是"值得看一眼"而非"不合规"，
     无人值守时因为 warn 停掉整轮太激进，记进日志由人事后看。
@@ -222,19 +227,12 @@ def gate_pending() -> str | None:
 def verify() -> str | None:
     """合并后的整体验证。委托给 kb.py check，不自己编排。
 
-    这里曾经手写 validate -> build_index -> regress 三步。委托出去有两个理由：
+    顺序只在一处定义：validate 必须在 build_index 之前，否则是拿旧索引校验
+    新本体，不报错但结论过期。委托出去也保证手动跑与无人值守跑同一条链。
 
-    顺序只在一处定义。validate 必须在 build_index 之前（反了就是拿旧索引校验
-    新本体，不报错但结论过期），这个约束原先同时写在本函数和 kb.py 里，
-    改一处忘一处就会不一致。
-
-    手动跑和无人值守跑同一条链，不会再出现"手动查得过、定时任务查不过"
-    这种只能靠读代码解释的差异。
-
-    apply_changeset.py 内部已经跑过一次 validate + build_index（它的合并是
-    原子的：追加后立即校验、失败即回滚）。这里再跑一遍不多余——apply 保证的是
-    "合并本身没把库弄坏"，而这里要确认的是全库最终状态：build/ 与本体一致、
-    问题夹具仍然全通。两者的判定范围不同。
+    apply_changeset.py 内部已经跑过 validate + build_index（合并是原子的：
+    追加后立即校验、失败即回滚）。这里再跑一遍判定范围不同：apply 保证
+    "合并没把库弄坏"，这里确认全库最终状态——build/ 与本体一致、问题夹具全通。
     """
     # 同样带 --no-precheck：此刻要判断的是合并后的库，而 pending 里可能还留着
     # 被拦下的条目（apply 部分放行时就是这样）。那些条目的问题不该让
@@ -255,19 +253,16 @@ def snapshot() -> str:
 def rollback(point: str, why: str) -> None:
     """把已跟踪文件恢复到 point。只在真的合并过内容之后调。
 
-    刻意不碰 changesets/：提案是数据，可能是人手工放进去的，
-    合并失败时更需要留着看为什么失败。`git clean -fd -- changesets` 会把它删掉。
-    也刻意不 clean 未跟踪文件：新建的实体文件如果没进索引，留着比删掉安全。
+    刻意不碰 changesets/：提案是数据，可能是人手工放进去的，合并失败时更
+    需要留着看为什么失败。也刻意不 clean 未跟踪文件。
 
-    要清楚这个选择的代价，它不是无害的：**reset --hard 收不回未跟踪文件**。
-    实测确认过——新建一个 ontology/ 下的文件后 reset，实体数仍是 241 而非 240，
-    该文件还在，仍会被 validate 与 build_index 读到。所以"回滚完成"不等于
-    "库回到了开跑前的状态"。
+    这个选择的代价不是无害的：**reset --hard 收不回未跟踪文件**。新建在
+    ontology/ 下的文件回滚后仍在，仍会被 validate 与 build_index 读到，
+    所以"回滚完成"不等于"库回到了开跑前的状态"。
 
-    兜底靠的是下一次前置检查：未跟踪的 ontology/ 文件会让 require_git_clean
-    拦住整轮（已实测 git status 能看到它、dirty 过滤不会漏）。也就是说
-    污染不会静默累积，但会挡住下一次自动运行，需要人来处置。
-    这是有意的取舍：留证据 + 挡下一轮，好过悄悄删掉一份可能有价值的产出。
+    兜底靠下一次前置检查：未跟踪的 ontology/ 文件会让 require_git_clean
+    拦住整轮。污染不会静默累积，但会挡住下一次自动运行，需要人处置。
+    取舍是留证据 + 挡下一轮，好过悄悄删掉一份可能有价值的产出。
     """
     log(f"!! {why}")
     log(f"回滚已跟踪文件到 {point[:8]}")
@@ -303,7 +298,8 @@ def main() -> int:
     C.setup_console()
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只生成提案，不落库")
-    ap.add_argument("--skip-agent", action="store_true", help="不调 agent，只落已有提案")
+    ap.add_argument("--skip-agent", action="store_true",
+                    help="跳过生成步骤，只落已有提案")
     a = ap.parse_args()
 
     cfg = yaml.safe_load((C.ROOT / "config.yaml").read_text(encoding="utf-8")) or {}
@@ -327,7 +323,7 @@ def main() -> int:
     note = "（--skip-agent）"
     if not a.skip_agent:
         ok, note = run_agent(int(guards.get("max_auto_entities", 30)))
-        log(f"agent: {note[:300]}")
+        log(f"生成步骤: {note[:300]}")
         if not ok:
             rollback(point, note)
             return 1
@@ -344,11 +340,11 @@ def main() -> int:
             return 1
     if not pending:
         # 不回滚。没合并过任何内容，没有要撤的东西；而 reset --hard 在这里
-        # 只会破坏——比如删掉 agent 中途写坏但还有诊断价值的文件。
+        # 只会破坏——比如删掉生成步骤中途写坏但还有诊断价值的文件。
         log("无事可做（没有待落库的提案）。不算失败，也不动任何文件。")
         r = run([*GIT, "status", "--porcelain"])
         if r.stdout.strip():
-            log("注意：工作区有改动但没有提案，agent 可能中途失败了：")
+            log("注意：工作区有改动但没有提案，生成步骤可能中途失败了：")
             for l in r.stdout.strip().splitlines()[:8]:
                 log(f"    {l}")
         return 0

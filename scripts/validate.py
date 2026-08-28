@@ -136,26 +136,15 @@ def check_relations(entities: dict, relations: list[dict], meta: dict) -> None:
 
 
 def check_derived(entities: dict, derived: list[dict], meta: dict) -> None:
-    """派生关系也要过 relation_types 白名单。
+    """只校验派生 belongs_to 的 to 端类型。
 
-    这里曾是全库校验唯一的盲区，代价真实发生过：
-    某轮提案给 5 个 Cause/Action 实体写了 equipment 字段，meta-schema 的
-    derived_relations 规则据此派生出 belongs_to 边指向 Cause/Action，
-    而白名单只允许 to: [Stage, Process]。check_relations 只吃显式关系，
-    build_index 却把 relations + derived 一起入图——非法边不报错却静默进图，
-    5 条错误一路走到审核阶段才被人发现。
+    build_index 把显式 relations 与 derived 一起入图，而 check_relations
+    只吃显式关系，所以派生边需要单独看一眼。
 
-    范围刻意只限 belongs_to。实测把白名单全面套到派生边上会误报 19 条：
-    Route/Material/State/RiskNode 上的 metrics、materials 字段会派生出
-    measured_by、performed_on 边，其 from 端类型本就不在白名单里，
-    而这些是库里一直存在的正当内容。派生规则的设计意图是"补图的连通性"，
-    不是"每条派生边都必须满足显式关系的类型约束"。
-
-    belongs_to 不同：它的语义是"归属于某道工序/阶段"，to 端必须是
-    Stage 或 Process，这个约束对派生边同样成立。上面那 5 条错误正是
-    to 端落到 Cause/Action 上。
-
-    只查这一条规则，宁可窄而准——误报会让人学会忽略 ERROR，比漏报更糟。
+    范围只限 belongs_to：它的语义是"归属于某道工序/阶段"，to 端必须是
+    Stage 或 Process，这个约束对派生边同样成立。其他派生边（measured_by、
+    performed_on 等）不套显式关系的白名单——派生规则用来补图的连通性，
+    其端点类型本就不必满足显式关系的约束。
     """
     rtypes = meta["relation_types"]
     spec = rtypes.get("belongs_to") or {}

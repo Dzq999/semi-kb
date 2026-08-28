@@ -38,9 +38,10 @@ def load_verdict(path: Path) -> tuple[dict, str]:
     确定性（同样的提案 + 同样的 verdict 得到同样的结果，可离线复跑、可进 CI），
     一旦内嵌判断就做不到了。
 
-    verdict 由谁写与本脚本无关，只要格式对得上。verifier 字段如实标明是谁审的
-    （self:* 表示自审、无第二双眼睛），本脚本不校验也无法校验它的真实性——
-    要紧的是标得诚实，假装独立审过比自审更糟。
+    verdict 由谁写与本脚本无关，只要格式对得上。本项目当前一律由当前 Agent
+    自审后写 verdict（不派 SubAgent），故 verifier 一律是 self:<子流程名>。
+    本脚本不校验也无法校验它的真实性——要紧的是标得诚实，
+    假装独立审过比自审更糟。
     """
     vp = C.ROOT / "changesets" / "verdicts" / f"{path.stem}.verdict.yaml"
     if not vp.exists():
