@@ -124,3 +124,71 @@ relations:
     to: ext.stage.grading_sorting
     note: 测试分级 ↔ 分选定级。共性：按指标分 Bin、不同等级对应不同售价、过杀与漏出的判定阈值权衡
     provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-26", reviewed_by: null}
+  - from: ap.cause.efo_electrode_fouling
+    type: may_cause
+    to: ap.anomaly.bonder_down
+    note: 报警集中在成球阶段，随打线点数累积加重
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.cause.wire_feed_jam
+    type: may_cause
+    to: ap.anomaly.bonder_down
+    note: 突发送线中断，穿线复位后即恢复
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.cause.bond_head_servo_fault
+    type: may_cause
+    to: ap.anomaly.bonder_down
+    note: 报警指向轴系或换能器自检，通常需原厂介入
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.anomaly.bonder_down
+    type: mitigated_by
+    to: ap.action.clean_efo_electrode
+    note: 成球类停机的首选恢复手段，厂内可自行执行
+    confidence: medium
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.cause.efo_electrode_fouling
+    type: may_cause
+    to: ap.anomaly.wire_nsop
+    note: 成球不良会先表现为焊接不粘，未必立即停机（这条因果强度弱于停机三条）
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - from: ap.anomaly.bonder_down
+    type: analogous_to
+    to: ext.anomaly.bottleneck_outage
+    note: '键合机停机 ↔ 通用瓶颈设备非计划停机。共性：损失近似为停机时长 × 瓶颈产出率且不可回补、备件备货水位与保养依从性是两个主要旋钮、 耗材型与轴系型停机的时长方差差一个量级。与 fab.anomaly.scanner_down
+      属同一类，两域可共用同一套停机分类与时长估算逻辑。
+
+      '
+    confidence: medium
+    provenance:
+      source_type: analogy
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

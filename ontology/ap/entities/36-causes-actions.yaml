@@ -184,3 +184,80 @@ entities:
     domain: ap
     description: 跨产品调配测试治具与烧机板，或改派至等价机台缓解堆积。
     economic_hooks: {affects: [throughput, cycle_time], note: 短期缓解，长期需补充治具投资}
+  - id: ap.cause.efo_electrode_fouling
+    type: Cause
+    name_zh: EFO 电极污染/磨损
+    name_en: EFO Electrode Fouling & Wear
+    domain: ap
+    description: '打火烧球(EFO)电极积附金属氧化物并随放电次数磨损，放电间隙漂移后 无法稳定成球，触发烧球失败报警并停机。特征是报警集中在成球阶段 而非焊接阶段，且随打线点数累积逐渐加重，清洗或更换电极后立即恢复。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - throughput
+      - rework_rate
+      note: 属可预测型劣化，清洗周期是停机频次与人力成本的权衡点
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: ap.cause.wire_feed_jam
+    type: Cause
+    name_zh: 送线卡线/断线
+    name_en: Wire Feed Jam & Wire Break
+    domain: ap
+    description: '线材在线轴、张力器或夹爪处缠绕、打结或断裂，导致送线中断而停机。 与瓷嘴磨损的区别在于：卡线是突发的送线通路故障，穿线复位后即恢复； 瓷嘴磨损是渐进的键合质量劣化，不必然停机。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - throughput
+      note: 单次停机短但频次高，累积可用率损失容易被低估
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: ap.cause.bond_head_servo_fault
+    type: Cause
+    name_zh: 键合头伺服/Z 轴异常
+    name_en: Bond Head Servo & Z-axis Fault
+    domain: ap
+    description: '键合头 Z 轴定位或超声换能器驱动异常，触发保护停机。 判别依据是报警指向轴系或换能器自检，而非成球与送线环节； 这类停机通常需原厂介入，不属厂内可自行恢复的耗材类停机。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - capacity_commit
+      note: 修复依赖外部资源，停机时长的方差远大于耗材类停机
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
+  - id: ap.action.clean_efo_electrode
+    type: Action
+    name_zh: 清洗/更换 EFO 电极
+    name_en: Clean or Replace EFO Electrode
+    domain: ap
+    description: '按打线点数计数清洗或更换 EFO 电极，恢复放电间隙。 与更换瓷嘴不同：瓷嘴管的是焊接界面质量，电极管的是成球稳定性， 两者寿命周期与判废依据都不同，不能互相替代。
+
+      '
+    economic_hooks:
+      affects:
+      - equipment_oee
+      - rework_rate
+      note: 按计数预防性清洗可把非计划停机换成短时计划停机
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null

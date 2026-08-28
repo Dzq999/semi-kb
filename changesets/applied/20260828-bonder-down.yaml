@@ -1,0 +1,273 @@
+# 变更提案 · 键合机停机处置知识
+changeset:
+  id: 20260828-bonder-down
+  title: 补齐键合机停机的根因、EFO 维护动作与排查 Playbook
+  created_at: "2026-08-28"
+  author: agent:kb-refresh
+  rationale: |
+    补的缺口与上一轮同类：高连通度异常无处置知识。从 build/index.json 重算
+    （合并 scanner_down 后的最新状态）：18 个 Anomaly 中 13 个有 kb 实例，5 个没有。
+    未覆盖项按度数排序，ap.anomaly.bonder_down 最高（度数 9，severity high），
+    风险图谱里 may_cause / detected_at / mitigated_by / blocks / refines 都已接好，
+    blocks 直接指向主流程 ap.route.qfn_wirebond_main，但排查指过来之后没有处置内容。
+    本轮落 ap 域，与上一轮的 fab 域形成两域均衡。
+
+    连带缺口：bonder_down 目前只有一条入边（ap.cause.fixture_shortage），
+    而 fixture_shortage 是"有机台无治具"的排产型成因，不描述机台本身为什么停。
+    ap 域 10 条 cause 全部是键合/塑封/切割的工艺缺陷型成因（焊垫污染、瓷嘴磨损、
+    参数漂移等），没有一条描述打线机的停机机理，因此无法支撑
+    "停多久、要不要改派、是耗材还是伺服"这类判断。本提案补 3 条停机根因与 1 条
+    EFO 维护动作。
+
+    provenance 说明（重要）：本轮 WebSearch 检索到了两个高相关来源——SEMI E10
+    设备可靠性/可用性/可维护性标准页，以及一篇 EFO 电极磨损与表面污染的实验研究。
+    但本环境的出站 HTTPS 全部不可用（连 example.com 都失败，schannel 报
+    SEC_E_NO_CREDENTIALS），Invoke-WebRequest 与 curl 均无法取回正文。
+    按 prompts/kb-refresh.md 的要求：拿不到确切正文就不填 web ref——
+    填了也是"看起来可核查、实际没核过"的假证据，而且 check_refs.py 做的是真实
+    urlopen，这种 ref 在当前网络下必然探测失败。故 13 条全部如实标 model_prior，
+    候选 URL 只作为线索写进 kb_case 的 notes，等网络恢复后再按 web 升级。
+
+    跨行业类比：本轮补的 bonder_down 与上一轮的 fab.anomaly.scanner_down 都属
+    "瓶颈设备非计划停机"，共性明确（可用率损失不可回补、备件与保养是主要旋钮），
+    故补一条 analogous_to 指向 ext.anomaly.bottleneck_outage，作为下一个行业冷启动
+    的载体。注意 analogous_to 的 from/to 白名单不含 Cause/Action，
+    所以类比只能建在 Anomaly 上，不能建在新增的 3 条 cause 上。
+
+additions:
+  entities:
+    - target_file: ontology/ap/entities/36-causes-actions.yaml
+      item:
+        id: ap.cause.efo_electrode_fouling
+        type: Cause
+        name_zh: EFO 电极污染/磨损
+        name_en: EFO Electrode Fouling & Wear
+        domain: ap
+        description: >
+          打火烧球(EFO)电极积附金属氧化物并随放电次数磨损，放电间隙漂移后
+          无法稳定成球，触发烧球失败报警并停机。特征是报警集中在成球阶段
+          而非焊接阶段，且随打线点数累积逐渐加重，清洗或更换电极后立即恢复。
+        economic_hooks:
+          affects: [equipment_oee, throughput, rework_rate]
+          note: 属可预测型劣化，清洗周期是停机频次与人力成本的权衡点
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/ap/entities/36-causes-actions.yaml
+      item:
+        id: ap.cause.wire_feed_jam
+        type: Cause
+        name_zh: 送线卡线/断线
+        name_en: Wire Feed Jam & Wire Break
+        domain: ap
+        description: >
+          线材在线轴、张力器或夹爪处缠绕、打结或断裂，导致送线中断而停机。
+          与瓷嘴磨损的区别在于：卡线是突发的送线通路故障，穿线复位后即恢复；
+          瓷嘴磨损是渐进的键合质量劣化，不必然停机。
+        economic_hooks:
+          affects: [equipment_oee, throughput]
+          note: 单次停机短但频次高，累积可用率损失容易被低估
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/ap/entities/36-causes-actions.yaml
+      item:
+        id: ap.cause.bond_head_servo_fault
+        type: Cause
+        name_zh: 键合头伺服/Z 轴异常
+        name_en: Bond Head Servo & Z-axis Fault
+        domain: ap
+        description: >
+          键合头 Z 轴定位或超声换能器驱动异常，触发保护停机。
+          判别依据是报警指向轴系或换能器自检，而非成球与送线环节；
+          这类停机通常需原厂介入，不属厂内可自行恢复的耗材类停机。
+        economic_hooks:
+          affects: [equipment_oee, capacity_commit]
+          note: 修复依赖外部资源，停机时长的方差远大于耗材类停机
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+    - target_file: ontology/ap/entities/36-causes-actions.yaml
+      item:
+        id: ap.action.clean_efo_electrode
+        type: Action
+        name_zh: 清洗/更换 EFO 电极
+        name_en: Clean or Replace EFO Electrode
+        domain: ap
+        description: >
+          按打线点数计数清洗或更换 EFO 电极，恢复放电间隙。
+          与更换瓷嘴不同：瓷嘴管的是焊接界面质量，电极管的是成球稳定性，
+          两者寿命周期与判废依据都不同，不能互相替代。
+        economic_hooks:
+          affects: [equipment_oee, rework_rate]
+          note: 按计数预防性清洗可把非计划停机换成短时计划停机
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null
+
+  relations:
+    # 关系条目必须显式带 provenance：apply_changeset.py 读不到 confidence 时
+    # 按 low 处理，会被 guards.min_confidence=medium 拦下。
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.cause.efo_electrode_fouling
+        type: may_cause
+        to: ap.anomaly.bonder_down
+        note: 报警集中在成球阶段，随打线点数累积加重
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.cause.wire_feed_jam
+        type: may_cause
+        to: ap.anomaly.bonder_down
+        note: 突发送线中断，穿线复位后即恢复
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.cause.bond_head_servo_fault
+        type: may_cause
+        to: ap.anomaly.bonder_down
+        note: 报警指向轴系或换能器自检，通常需原厂介入
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.anomaly.bonder_down
+        type: mitigated_by
+        to: ap.action.clean_efo_electrode
+        note: 成球类停机的首选恢复手段，厂内可自行执行
+        confidence: medium
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.cause.efo_electrode_fouling
+        type: may_cause
+        to: ap.anomaly.wire_nsop
+        note: 成球不良会先表现为焊接不粘，未必立即停机（这条因果强度弱于停机三条）
+        provenance: {source_type: model_prior, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+    - target_file: ontology/ap/relations/41-risk-graph.yaml
+      item:
+        from: ap.anomaly.bonder_down
+        type: analogous_to
+        to: ext.anomaly.bottleneck_outage
+        note: >
+          键合机停机 ↔ 通用瓶颈设备非计划停机。共性：损失近似为停机时长 ×
+          瓶颈产出率且不可回补、备件备货水位与保养依从性是两个主要旋钮、
+          耗材型与轴系型停机的时长方差差一个量级。与 fab.anomaly.scanner_down
+          属同一类，两域可共用同一套停机分类与时长估算逻辑。
+        confidence: medium
+        provenance: {source_type: analogy, ref: null, confidence: medium, created_at: "2026-08-28", reviewed_by: null}
+
+  kb_cases:
+    - target_file: kb/ap/bond-wip-cases.yaml
+      item:
+        id: kb.ap.bonder_down_triage
+        domain: ap
+        title: 键合机停机排查与处置
+        anomaly_ref: ap.anomaly.bonder_down
+        detected_at_ref: ap.process.wire_bond
+        severity: high
+        symptoms:
+          - 打线机报警停机，键合工序在制批次停止流动
+          - 键合区 WIP 累积，下游塑封出现待料
+          - OEE 可用率跌落；若为卡线类则表现为频繁短停而非一次长停
+        possible_causes:
+          - cause_ref: ap.cause.efo_electrode_fouling
+            likelihood: high
+            discriminator: >
+              报警集中在成球(FAB)阶段而非焊接阶段，且故障频次随打线点数累积上升。
+              查电极累积放电次数，清洗后立即恢复即可确认。
+          - cause_ref: ap.cause.wire_feed_jam
+            likelihood: high
+            discriminator: >
+              停机形态是频繁短停，穿线复位即恢复，不伴随键合质量指标劣化。
+              这一点与瓷嘴磨损相反：后者拉力下降但机台不一定停。
+          - cause_ref: ap.cause.bond_head_servo_fault
+            likelihood: medium
+            discriminator: >
+              报警指向 Z 轴定位或换能器自检，与成球、送线环节无关。
+              复位无效且需原厂介入是强信号——此时不要继续在耗材上排查。
+          - cause_ref: ap.cause.capillary_wear
+            likelihood: medium
+            discriminator: >
+              主要表现为拉力/球剪切下降，通常先触发质量异常而非停机；
+              只有在瓷嘴堵塞导致送线受阻时才停机，需与卡线区分。
+          - cause_ref: ap.cause.fixture_shortage
+            likelihood: low
+            discriminator: >
+              机台本身完好，停的是"没治具可上"。查治具台账即可排除，
+              它是排产型成因，处置走调配而非维修。
+        detection:
+          - metric_ref: core.metric.oee
+            signal: >
+              可用率跌落。要同时看停机次数与单次时长：频繁短停指向卡线或电极，
+              一次长停指向轴系。只看总停机时长会把两类混为一谈。
+          - metric_ref: core.metric.wip
+            signal: 键合区队列累积，是停机向下游塑封传导的最早观测量
+          - metric_ref: ap.metric.wire_pull_strength
+            signal: >
+              拉力同步下降则更可能是瓷嘴或参数问题而非纯停机故障，
+              可用于把停机型与质量型成因分开
+        actions:
+          - action_ref: ap.action.clean_efo_electrode
+            order: 1
+            condition: >
+              成球阶段报警时首选，厂内可自行执行。恢复后跑首件确认成球稳定，
+              并按打线点数把清洗纳入预防性周期，避免同一原因反复停机。
+          - action_ref: ap.action.replace_capillary
+            order: 2
+            condition: >
+              瓷嘴寿命末期或堵塞时更换。换后需确认键合参数无需重新优化，
+              否则应连带走参数 DOE。
+          - action_ref: ap.action.reallocate_fixture
+            order: 3
+            condition: >
+              预估停机超过一个班次时改派同类打线机，需确认目标机台键合参数
+              已对该产品验证过；参数未验证的改派会把停机问题换成质量问题。
+          - action_ref: ap.action.hold_lot
+            order: 4
+            condition: >
+              停机瞬间在机的部分打线批次须扣留待判，不可直接续打——
+              半成品的未完成焊点位置需人工确认后才能决定续打或返工。
+        impact:
+          blocked_processes: [ap.process.wire_bond]
+          economic: >
+            键合是 QFN 主流程的瓶颈工序之一，停机损失近似等于停机时长 ×
+            瓶颈产出率，且不可通过后续赶工完全回补。可控旋钮有两个：
+            按计数的电极/瓷嘴预防性更换（把非计划停机换成短时计划停机），
+            以及关键备件本地备货水位。轴系类停机的时长方差远大于耗材类，
+            估算停机影响时应按成因分类而非用单一平均值。
+        tags: [键合, 设备停机, EFO, 瓶颈]
+        notes: >
+          本条 provenance 为 model_prior。本轮检索到两个高相关来源但无法取回正文
+          （本环境出站 HTTPS 不可用，schannel SEC_E_NO_CREDENTIALS），按规范不填
+          未经核实的 web ref。候选线索留待网络恢复后核：
+          SEMI E10（设备可靠性/可用性/可维护性，六种设备状态与停机口径定义，
+          可用于细化本条 detection 的 OEE 分解）；
+          以及一篇 EFO 电极磨损/表面污染/放电间隙的实验研究（Ariel University
+          CRIS 收录），可用于把 efo_electrode_fouling 的机理描述升级为 web 来源。
+          核实时注意：URL 可达不等于正文支持该说法，须确认原文确实讨论了
+          电极污染与放电间隙漂移的因果，再改 provenance。
+        provenance:
+          source_type: model_prior
+          ref: null
+          confidence: medium
+          created_at: "2026-08-28"
+          reviewed_by: null

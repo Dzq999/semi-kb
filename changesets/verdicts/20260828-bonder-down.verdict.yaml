@@ -1,0 +1,175 @@
+changeset: 20260828-bonder-down.yaml
+verifier: workflow:parallel-reviewers
+verified_at: "2026-08-28 16:20"
+items:
+  - key: "ap.cause.efo_electrode_fouling"
+    section: entities
+    verdict: pass
+    reason: >-
+      结论：ap.cause.efo_electrode_fouling 可通过。
+
+      1) provenance 标 model_prior 恰当。描述「电极积附金属氧化物、随放电次数磨损、间隙漂移致无法稳定成球」全程无标准号、无具体参数值、无数值阈值，属定性失效机理与工程判别经验（报警集中在成球阶段而非焊接阶段、清洗后立即恢复），符合 knowledge/modeling-guide.md 第 51-66 行的 provenance 口径；ref 为 null 未编造 URL，候选线索只写进 kb_case 的 notes 并注明「URL 可达不等于正文支持」，态度诚实。若日后要写入清洗周期的具体点数门槛，才需升级为 web。
+
+      2) 与 ap.cause.capillary_wear 不重复。读 36-causes-actions.yaml 第 21-29 行：瓷嘴磨损的劣化载体是瓷嘴端面/积屑，失效表现是超声能量传递效率变化导致拉力与剪切下降（economic_hooks 为 yield/cost_per_unit），判废按键合次数；本条载体是 EFO 放电电极，表现是成球失败报警致停机（hooks 为 equipment_oee/throughput/rework_rate），判废按累积放电次数与间隙漂移。一个是渐进质量劣化不必然停机，一个是急性停机，三项要素均不同。
+
+      3) 与其余 9 条 cause 查重通过：pad_contamination、bond_param_drift、emc_moisture、blade_wear、grind_wheel_clog、epoxy_bleed、probe_card_wear、reflow_profile_drift、fixture_shortage 无一涉及 EFO 成球环节；grep 全 ontology 目录 efo|electrode|烧球|成球 仅命中 31 文件的工艺描述，无同义实体。
+
+      4) 两条 may_cause 语义正确：均表示「导致异常发生」（成球失败触发停机、成球不良致不粘），非「决定停机多久」——时长方差的说法只出现在 economic_hooks.note 与 kb_case.impact，未被建成关系边，避开了上一轮备件延迟被 reject 的陷阱。meta-schema.yaml 第 50 行 may_cause 白名单 Cause→Anomaly 亦相符；41-risk-graph.yaml 第 18-23 行已有多条 cause 指向 wire_nsop，本条为新增不同成因，不冲突。
+
+      验证方式：读提案 1-273 行、36-causes-actions.yaml 全文、meta-schema 第 50 行、modeling-guide 第 40-89 行、41-risk-graph 相关行；grep 查重与实体存在性（wire_nsop、bonder_down 均在 35-anomalies.yaml）。未修改任何文件，未创建临时脚本（仓库内既有 _tmp_* 文件非本次产生，按只读要求未触碰）。
+  - key: "ap.cause.wire_feed_jam"
+    section: entities
+    verdict: pass
+    reason: >-
+      结论：ap.cause.wire_feed_jam 可通过。
+
+      1) 与 capillary_wear 的区分成立，不是找借口。读 ontology/ap/entities/36-causes-actions.yaml 第21-29行，已有 capillary_wear 定义为「瓷嘴端面磨损或积屑，改变超声能量传递效率，不良集中特定机台线位、随键合次数累积恶化」，economic_hooks 是 yield/cost_per_unit——确属渐进质量型。本条定位在「线轴、张力器、夹爪」的机械通路中断，hooks 是 equipment_oee/throughput，指向 bonder_down 而非 wire_nsop。故障部位、机理、观测量、下游异常四项都不同，提案 description 自述的区分与本体既有文本一致，不是同义改名。
+
+      2) 查重通过。读完 36 文件全部 10 条 ap cause（pad_contamination、capillary_wear、bond_param_drift、emc_moisture、blade_wear、grind_wheel_clog、epoxy_bleed、probe_card_wear、reflow_profile_drift、fixture_shortage），无一涉及送线；又对 ontology/ 全域 grep「送线|线材|断线|feed|spool|张力」，仅命中磨削/切割进给参数与线材批号，无重复 ID。与本提案同批的 efo_electrode_fouling（成球放电）、bond_head_servo_fault（轴系）也不重叠。
+
+      3) model_prior 恰当。描述中无标准号、无厂商参数、无数值阈值，属打线机故障模式的工程常识，不需要厂商资料背书，符合规则的可 pass 情形。
+
+      4) may_cause 用法正确：送线中断直接导致停机发生，不是只影响 MTTR，与上一轮「备件到位延迟」被 reject 的情形不同；描述里「复位后即恢复」是判别信息，未被用来承载持续时长语义。
+
+      验证方式：read 提案 62-79 行、36-causes-actions.yaml 全文、35-anomalies.yaml bonder_down 段、41-risk-graph.yaml 60-104 行、modeling-guide.md 30-89 行，并跑 grep 查重。未修改任何文件，未创建临时文件。
+  - key: "ap.cause.bond_head_servo_fault"
+    section: entities
+    verdict: pass
+    reason: >-
+      结论：pass（entities / ap.cause.bond_head_servo_fault）。
+
+      1) provenance=model_prior 成立。正文只有定性机理与判别依据（"报警指向轴系或换能器自检，而非成球与送线环节""通常需原厂介入"），未出现标准号、设备规格数值、行程/精度/频率等任何需查证的量化阈值。与已合并的 fab.cause.reticle_stage_error 同规格（该条含"纳米级伺服跟随"仍判 model_prior，见 changesets/verdicts/20260828-scanner-down.verdict.yaml:47-48），标准一致，无需查设备手册。
+
+      2) 与 fab.cause.reticle_stage_error 不构成重复。读 ontology/fab/entities/17-causes-actions.yaml:183-196：后者是双工件台同步扫描的编码器/气浮/温控偏差，伴随特定 slit 位置复现；本条是键合头 Z 轴与超声换能器驱动，判别锚点在成球/送线之外。两者机理、设备、判别信号、所属工序均不同，非同义不同名。"应建在 core 层由两域 refines"不可行：ontology/meta-schema.yaml:54 的 refines 白名单为 Process/Parameter/Metric/Anomaly/State/Material/Stage/RiskNode，不含 Cause；跨域聚合已由两域 anomaly 各自 refines 到 core.anomaly.equipment_down 完成（fab/21-risk-graph.yaml:82、ap/41-risk-graph.yaml:100），故 Cause 分域建模是本元模型下唯一正确路径。
+
+      3) economic_hooks 的 note 未越界成 MTTR 断言。本条实体本身断言的是"触发保护停机"即导致异常发生，may_cause 语义成立；这与上一轮被撤的 spare_part_shortage 本质不同（后者只拉长 MTTR、不改变停机是否发生）。note 中的"方差远大于耗材类"是 affects: equipment_oee/capacity_commit 的定性影响刻画，属该字段用途，且未替代因果主张、未给出倍数。
+
+      验证方式：读提案 83-100 行、meta-schema.yaml:30-79、fab/17-causes-actions.yaml:170-209、上一轮 verdict 36-62 行、modeling-guide.md:62-89；用 grep 扫 ontology 全域 refines/core.cause.* 与 ap.cause.* 全表（20 条，无伺服/轴系类）确认无重复。未创建也未修改任何文件。
+  - key: "ap.action.clean_efo_electrode"
+    section: entities
+    verdict: pass
+    reason: >-
+      结论：ap.action.clean_efo_electrode 可通过。
+
+      1) 与 replace_capillary 不重复，description 的声称经独立验证成立。读 ontology/ap/entities/36-causes-actions.yaml：replace_capillary（L118-124）是"更换键合瓷嘴并跑首件拉力确认"，economic_hooks 为 yield/cost_per_unit/equipment_oee；其对应成因 capillary_wear（L21-29）机理是"瓷嘴端面磨损积屑，改变超声能量传递效率"，即焊接界面质量。本条管的是 EFO 放电成球（放电间隙漂移），hooks 为 equipment_oee/rework_rate，判废依据是电极累积放电次数而非拉力。两者是键合机上物理独立的耗材与不同失效环节，触发场景（成球阶段报警 vs 拉力/球剪切下降）也可判别，不构成同义不同名。
+
+      2) 与其余 9 条查重：grep "id: ap.action" 得全部 10 条并逐条读过。reallocate_fixture（L180-186）是治具调配/改派机台的排产动作，与耗材维护无交集；replace_probe_card 虽同为"清洗或更换"句式，但对象是探针卡、工序在测试段；hold_lot / plasma_clean_rerun / bond_param_doe / bake_emc / replace_blade / adjust_dispense / retest 机制与工序均不同。另 grep "EFO|电极|成球" 全库，本体内除本提案外零命中，说明现有 Action 集合完全未覆盖成球稳定性这一分支——与上一轮被 reject 那条"机制、场景、economic_hooks 全重合"的情形不同，此处不存在已有描述涵盖该分支的问题。
+
+      3) model_prior 恰当。description 只给"按打线点数计数清洗/更换"这一维护惯例与判废逻辑，未写具体寿命阈值、标准号或设备参数，属工程惯例与本体结构决策，标 model_prior 正确。若后续要补入具体清洗周期数值，则需升级为 web 并核实正文。
+
+      验证方式：read 提案 L102-121 全文、read 36-causes-actions.yaml L95-186 与 L21-34、grep 两次（ap.action 清单、EFO/电极/成球 全库）、read knowledge/modeling-guide.md L30-89 确认 mitigated_by 与 provenance 规范。未修改任何文件，未创建临时脚本。
+
+      附注（不影响本条判定）：仓库根存在作者遗留的 _tmp_net_probe2/3/4.py，按要求我未做改动，建议提案作者自行清理。
+  - key: "ap.cause.efo_electrode_fouling|may_cause|ap.anomaly.bonder_down"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：该关系条目合规，可放行。
+
+      1) may_cause 语义成立。读提案第 41-49 行的实体描述：电极积附氧化物+放电磨损→放电间隙漂移→无法稳定成球→"触发烧球失败报警并停机"。与 ontology/ap/entities/35-anomalies.yaml:112-124 的 bonder_down 定义（键合设备故障）对齐——这是直接触发停机事件本身，不是解释 MTTR。对照上一轮被 reject 的"备件到位延迟"：那类只在停机已发生后拉长恢复时长；本条是停机的触发机理，两者不同类。meta-schema.yaml:50 的 may_cause 白名单 Cause→Anomaly 也满足。
+
+      2) note 与 discriminator 不矛盾。note"报警集中在成球阶段，随打线点数累积加重"与 kb_case（提案 194-196 行）"报警集中在成球(FAB)阶段而非焊接阶段，故障频次随打线点数累积上升"表述一致，方向同为频次累积上升，未混入时长口径。
+
+      3) provenance 标 model_prior 恰当。note 只含机理与阶段判别，无标准号、无具体设备参数或数值阈值，属工程判断，不需联网取证；提案也未编造 URL（ref: null），候选线索仅写在 notes。
+
+      4) 无语义重复。读 ontology/ap/entities/36-causes-actions.yaml 全文，10 条 cause 中 capillary_wear 管焊接界面质量、渐进不必然停机，与电极管成球稳定性属不同机理；无同义条目。grep ontology/ap/relations/41-risk-graph.yaml 确认无既有 efo→bonder_down 边，不重复。
+
+      验证方式：read 提案全文、35-anomalies.yaml:105-124、36-causes-actions.yaml；grep meta-schema.yaml、41-risk-graph.yaml、knowledge/modeling-guide.md。未修改任何文件，未创建临时文件。
+  - key: "ap.cause.wire_feed_jam|may_cause|ap.anomaly.bonder_down"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：该关系条目成立，可放行。
+
+      1) may_cause 语义正确。读提案 62-79、134-141 行：wire_feed_jam 定义为「线材在线轴、张力器或夹爪处缠绕、打结或断裂，导致送线中断而停机」，即卡线本身就是停机的触发事件（送线通路中断→机台失去产出能力），不是只影响恢复时长。与上一轮被 reject 的「备件到位延迟」有本质区别：后者停机已发生、只改 MTTR；卡线是停机的发生原因。
+
+      2) 节点未被混用。读 ontology/ap/entities/35-anomalies.yaml:112-124，bonder_down 描述为「键合设备故障」，severity high，并未设定时长门槛；其中「个别停机影响有限」恰恰说明该节点本就容纳小颗粒度停机事件。再读其父节点 ontology/core/entities/01-materials-states.yaml:82-95，core.anomaly.equipment_down 定义为「机台失去产出能力」，只区分计划内/计划外，不按时长切分，bonder_down 经 refines 归入。故高频短停属于该节点外延，不构成两种现象混一。grep 全 ontology 确认库内不存在独立的「短停/micro-stop」异常节点，这条边没有更合适的落点。时长差异由 kb_case 的 detection（停机次数 vs 单次时长）与 discriminator 承载，属正确分层。
+
+      3) 无语义重复。grep 36-causes-actions.yaml 现有 10 条 cause，无送线类成因；与 capillary_wear（渐进质量劣化、不必然停机，见该文件 21-29 行）机制与后果均不同。
+
+      4) provenance 标 model_prior 恰当：该条目内容是失效机理与工程判别，未涉及标准号、设备参数或数值阈值，属可标 model_prior 的范畴。
+
+      取证方式：read 提案全文、35-anomalies.yaml、01-materials-states.yaml、36-causes-actions.yaml 相关段，grep meta-schema.yaml 与 modeling-guide.md 的 may_cause 定义。未修改任何文件，未创建临时文件。
+  - key: "ap.cause.bond_head_servo_fault|may_cause|ap.anomaly.bonder_down"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：该 may_cause 边语义成立，可放行。
+
+      一、语义核心。读提案 83-100 行与 142-149 行：该 Cause 的机理句是「键合头 Z 轴定位或超声换能器驱动异常，触发保护停机」——即设备本体故障直接触发保护停机，因果链条落在「停机是否发生」上。「通常需原厂介入」出现在判别句里（用于与耗材类停机区分），「停机时长方差远大于耗材类」写在 economic_hooks.note 里，两者都是该成因的附带属性描述，不构成这条边的语义负载。这与上一轮被 reject 的 spare_part_shortage 有本质区别：备件延迟本身永远不会触发停机，只拉长 MTTR；而伺服/轴系故障本身就是停机事件的触发者。我核对了 changesets/applied/20260828-scanner-down.yaml 第 229-230 行记录的那次建模取舍，判别标准一致。
+
+      二、重复性。grep ontology/ap/entities/36-causes-actions.yaml 全部 10 条 cause：无轴系/伺服类成因。最接近的 ap.cause.bond_param_drift（第 31-37 行）虽提到「超声换能器效率衰退」，但其机理是能量偏离设定值导致质量劣化，指向质量异常，不指向保护停机；且 ontology/ap/relations/41-risk-graph.yaml 第 91-100 行显示 bonder_down 现存唯一入边是 fixture_shortage，无重复边。
+
+      三、provenance。model_prior 恰当：该边承载的是失效模式与工程判断，未声明任何标准号、设备参数或数值阈值，无需联网取证。confidence=medium 与机理性描述的确定度相称。
+
+      验证方式：read 提案全文、35-anomalies.yaml（112-124 行 bonder_down 定义）、36-causes-actions.yaml 相关段、meta-schema.yaml 第 50 行 may_cause 白名单定义（Cause->Anomaly 合法）；grep 检索 servo/轴系/换能器/MTTR 关键词与历史 verdict。未修改任何文件，未创建临时文件。
+  - key: "ap.anomaly.bonder_down|mitigated_by|ap.action.clean_efo_electrode"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：该条 mitigated_by 语义、方向、与既有边的关系均正确，通过。
+
+      依据与验证：
+
+      1. 方向与端点：读 ontology/meta-schema.yaml:52，mitigated_by 为 from [Anomaly] → to [Action]。本条 from=ap.anomaly.bonder_down（Anomaly）、to=ap.action.clean_efo_electrode（Action，本提案新增），方向正确，不存在反向建模。
+
+      2. 语义正确：清洗/更换 EFO 电极是恢复放电间隙、让机台重新可用的实质处置，不是「只影响 MTTR」的支援动作，与上一轮被 reject 的「备件到位延迟」性质不同（那条是被建成 Cause 且用 may_cause 指向异常）。此处 Action 直接解除停机状态，属 mitigated_by 的正当用法。
+
+      3. 与已有 bonder_down mitigated_by reallocate_fixture 不重复、互补：读 ontology/ap/relations/41-risk-graph.yaml:90-97，bonder_down 现仅一条 mitigated_by 指向 reallocate_fixture；读 36-causes-actions.yaml:180-186，reallocate_fixture 描述为「跨产品调配治具或改派至等价机台缓解堆积」，economic_hooks 为 throughput/cycle_time，是绕开故障机台的改派；clean_efo_electrode 为 equipment_oee/rework_rate 的厂内本机恢复。二者机制、经济钩子均不重合，是恢复 vs 改派的互补分支，非上一轮「与已有 Action 全面重合」那类问题。kb_case 中 order 1 与 order 3 并带 condition（预估停机超一个班次才改派）也印证互补。
+
+      4. 无重复概念：通读 36-causes-actions.yaml 全部 10 条 Action，无任何电极清洗动作；plasma_clean_rerun 是焊垫等离子清洁、replace_capillary 是瓷嘴，均针对不同部件与失效模式，提案描述亦已显式区分瓷嘴（焊接界面）与电极（成球稳定性）。
+
+      5. 「一条 Action 只覆盖部分成因」符合库内惯例：wire_nsop 已有 replace_capillary、adjust_dispense 等多条按成因分支的 mitigated_by 并附 note（41-risk-graph.yaml:25-29），本条 note「成球类停机的首选恢复手段」与该惯例一致。
+
+      6. provenance 标 model_prior 恰当：本条承载的是「电极清洗属厂内可执行恢复手段」这一工程判断与本体结构决策，不含标准号或具体设备参数等外部客观事实，无需 web 取证。
+
+      未修改任何文件；仅用 read/grep 取证，未创建临时文件。
+  - key: "ap.cause.efo_electrode_fouling|may_cause|ap.anomaly.wire_nsop"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：该条边可以放行。
+
+      依据与验证过程：
+
+      1) 一个 Cause 指向多个 Anomaly 有明确库内先例。读 `ontology/ap/relations/41-risk-graph.yaml`：`ap.cause.pad_contamination` 同时 may_cause `wire_nsop`(L18) 与 `delamination`(L55)；`ap.cause.emc_moisture` 同时指 `mold_void`(L33) 与 `delamination`(L54)；`ap.cause.blade_wear` 同时指 `dicing_chipping`(L63) 与 `die_crack`(L44)；`fixture_shortage` 同时指 `bonder_down`(L91) 与 `core.anomaly.wip_bubble`(L92)——后者正是「停机型+非停机型」跨类共存。故「同一 cause 跨向停机与质量两类异常」不违反建模惯例。
+
+      2) 因果成立，不是硬连。EFO 电极污染/间隙漂移直接劣化 FAB 成球（球径、球形、氧化），成球不良再导致焊球与焊垫无法形成有效接合——这是同一机理链的前后段，非两个独立机理。提案实体描述（L46-49）也把「无法稳定成球」定为主机理，停机与不粘同源，note 说的「未必立即停机」即劣化程度差异，属合理工程判断。
+
+      3) 无重复无冲突。`wire_nsop` 现有入边为 pad_contamination、capillary_wear、bond_param_drift、epoxy_bleed、bond_power、bond_stage_temp（L18-23），无一涉及 EFO/成球环节；最接近的 capillary_wear 管的是焊接界面与瓷嘴磨损，与电极管成球稳定性机理不同（提案 L110-112 已显式区分），且原 `35-anomalies.yaml` L17-19 的判别路径未覆盖成球分支，本条是新增分支而非同义边。
+
+      4) 关系语义用对：这是「导致不粘发生」，非「决定持续多久」，符合 may_cause 约束（对照 `knowledge/modeling-guide.md` L14-19）。
+
+      5) provenance 标 model_prior 恰当：此条是机理性工程判断，未涉及标准号、设备参数或数值阈值，无需 web 取证。
+  - key: "ap.anomaly.bonder_down|analogous_to|ext.anomaly.bottleneck_outage"
+    section: relations
+    verdict: pass
+    reason: >-
+      结论：pass。
+
+      取证：读提案 L165-176 定位该条目；读 ontology/meta-schema.yaml L55 确认 analogous_to 白名单 from/to 均含 Anomaly；grep 确认 ap.anomaly.bonder_down 定义在 ap/entities/35-anomalies.yaml L112，type 为 Anomaly，to 端 ext.* 按 meta-schema L16 豁免解析，两端类型合法。
+
+      1) 类比成立。note 三点共性都是结构性同构而非空话：损失=停机时长×瓶颈产出率且不可回补（与 kb_case 的 impact.economic 一致，非临时编造）；备件水位与保养依从性两个旋钮；耗材型/轴系型时长方差差一个量级——这一点恰好由本提案三条 cause 的分层支撑（electrode_fouling、wire_feed_jam 为厂内可恢复，bond_head_servo_fault 需原厂介入），复用价值具体，不是同义改写。它与 core.risknode.bottleneck_station→ext.risknode.capacity_choke（01-core-relations.yaml L91-94）不重复：后者是结构性卡口位置（RiskNode），前者是非计划停机事件（Anomaly），层次不同。
+
+      2) source_type=analogy 恰当。库内全部 10 条 analogous_to 一律标 analogy（41-risk-graph.yaml L112/120/126、fab/21-risk-graph.yaml L98/104、core L47/60/73/85/95），本条与先例一致。类比是工程判断而非外部客观事实，不需要 web 取证，不落 model_prior 偷懒的口径。
+
+      3) 命名合规。ext.<type_slug>.<name> 符合 meta-schema L12 pattern，anomaly 是 Anomaly 的合法 slug（L35），与已有 ext.process./ext.material./ext.stage./ext.metric./ext.risknode.* 同构。
+
+      4) 供人工参考（不影响判定）：fab.anomaly.scanner_down 确无同类边（21-risk-graph.yaml L90-104 只有 diffusion 与 defect_density 两条），note 却声称「两域可共用同一套停机分类与时长估算逻辑」，形成单端不对称。建议后续补 scanner_down→ext.anomaly.bottleneck_outage，使该 ext 节点成为真正的两域汇聚点。
+  - key: "kb.ap.bonder_down_triage"
+    section: kb_cases
+    verdict: pass
+    reason: >-
+      结论：通过。逐项取证如下。
+
+      1) discriminator 可区分。读 changesets/pending/20260828-bonder-down.yaml:191-216。wire_feed_jam「频繁短停、穿线复位即恢复、不伴质量指标劣化」与 capillary_wear「拉力/球剪切下降、通常先触发质量异常而非停机」沿"质量指标是否同步劣化"这一可观测轴分开，且提案自己点出重叠区（瓷嘴堵塞致送线受阻）并给了判据，非空泛。efo_electrode_fouling 用"报警在成球(FAB)阶段而非焊接阶段+随打线点数累积+清洗后立即恢复"与 servo（指向 Z 轴/换能器自检、复位无效）、fixture_shortage（机台完好、查治具台账）均可分。capillary_wear 虽在 kb.ap.wire_nsop_triage 已出现（likelihood high），此处降为 medium 并说明"通常不停机"，是同一 Cause 在不同异常下的差异化判别，非语义重复。
+
+      2) actions order 合理：清洗电极（厂内、最廉）→换瓷嘴（耗材）→改派（带"超一个班次+目标机台参数已验证"闸门）→hold_lot 扣留判定。与 kb/ap/bond-wip-cases.yaml:139-141 既有惯例（hold_lot order 4）一致。
+
+      3) detection 三条（core.metric.oee 拆停机次数×单次时长、core.metric.wip 队列、ap.metric.wire_pull_strength）均可观测，且分别呼应耗材/轴系、下游传导、质量型与停机型分离。
+
+      4) impact.economic 只给"停机时长×瓶颈产出率、不可完全回补、方差按成因分类"的定性结构，未编造百分比或金额，未越界。
+
+      5) 网络确实不可用：curl.exe -sS --max-time 10 https://example.com 返回 exit 35（schannel SEC_E_NO_CREDENTIALS），Invoke-WebRequest 报 SSL 无法建立；Test-NetConnection 443 为 True 说明是 TLS 凭证层失效而非防火墙。故"检索到线索但不填 web ref"不是偷懒，且 notes 未编造任何 URL，仅描述来源并提醒"URL 可达≠正文支持"。
+
+      provenance：本条无标准号/设备参数/数值阈值等外部客观事实（SEMI E10 仅作待核线索），"键合是瓶颈工序"属领域惯例，标 model_prior 正确。另 grep 确认 kb/ 下无 anomaly_ref: ap.anomaly.bonder_down 的既有 case，无重复。全程只读，未改动任何文件，未留临时脚本。

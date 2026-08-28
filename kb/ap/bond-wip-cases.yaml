@@ -145,3 +145,95 @@ cases:
         塑封前检出可重新键合挽回，损失限于键合工时；塑封后暴露则整颗判废，
         且可能在终测才发现（表现为开路）。molding 是本异常的经济分界点。
     tags: [键合, NSOP, 排查]
+  - id: kb.ap.bonder_down_triage
+    domain: ap
+    title: 键合机停机排查与处置
+    anomaly_ref: ap.anomaly.bonder_down
+    detected_at_ref: ap.process.wire_bond
+    severity: high
+    symptoms:
+    - 打线机报警停机，键合工序在制批次停止流动
+    - 键合区 WIP 累积，下游塑封出现待料
+    - OEE 可用率跌落；若为卡线类则表现为频繁短停而非一次长停
+    possible_causes:
+    - cause_ref: ap.cause.efo_electrode_fouling
+      likelihood: high
+      discriminator: '报警集中在成球(FAB)阶段而非焊接阶段，且故障频次随打线点数累积上升。 查电极累积放电次数，清洗后立即恢复即可确认。
+
+        '
+    - cause_ref: ap.cause.wire_feed_jam
+      likelihood: high
+      discriminator: '停机形态是频繁短停，穿线复位即恢复，不伴随键合质量指标劣化。 这一点与瓷嘴磨损相反：后者拉力下降但机台不一定停。
+
+        '
+    - cause_ref: ap.cause.bond_head_servo_fault
+      likelihood: medium
+      discriminator: '报警指向 Z 轴定位或换能器自检，与成球、送线环节无关。 复位无效且需原厂介入是强信号——此时不要继续在耗材上排查。
+
+        '
+    - cause_ref: ap.cause.capillary_wear
+      likelihood: medium
+      discriminator: '主要表现为拉力/球剪切下降，通常先触发质量异常而非停机； 只有在瓷嘴堵塞导致送线受阻时才停机，需与卡线区分。
+
+        '
+    - cause_ref: ap.cause.fixture_shortage
+      likelihood: low
+      discriminator: '机台本身完好，停的是"没治具可上"。查治具台账即可排除， 它是排产型成因，处置走调配而非维修。
+
+        '
+    detection:
+    - metric_ref: core.metric.oee
+      signal: '可用率跌落。要同时看停机次数与单次时长：频繁短停指向卡线或电极， 一次长停指向轴系。只看总停机时长会把两类混为一谈。
+
+        '
+    - metric_ref: core.metric.wip
+      signal: 键合区队列累积，是停机向下游塑封传导的最早观测量
+    - metric_ref: ap.metric.wire_pull_strength
+      signal: '拉力同步下降则更可能是瓷嘴或参数问题而非纯停机故障， 可用于把停机型与质量型成因分开
+
+        '
+    actions:
+    - action_ref: ap.action.clean_efo_electrode
+      order: 1
+      condition: '成球阶段报警时首选，厂内可自行执行。恢复后跑首件确认成球稳定， 并按打线点数把清洗纳入预防性周期，避免同一原因反复停机。
+
+        '
+    - action_ref: ap.action.replace_capillary
+      order: 2
+      condition: '瓷嘴寿命末期或堵塞时更换。换后需确认键合参数无需重新优化， 否则应连带走参数 DOE。
+
+        '
+    - action_ref: ap.action.reallocate_fixture
+      order: 3
+      condition: '预估停机超过一个班次时改派同类打线机，需确认目标机台键合参数 已对该产品验证过；参数未验证的改派会把停机问题换成质量问题。
+
+        '
+    - action_ref: ap.action.hold_lot
+      order: 4
+      condition: '停机瞬间在机的部分打线批次须扣留待判，不可直接续打—— 半成品的未完成焊点位置需人工确认后才能决定续打或返工。
+
+        '
+    impact:
+      blocked_processes:
+      - ap.process.wire_bond
+      economic: '键合是 QFN 主流程的瓶颈工序之一，停机损失近似等于停机时长 × 瓶颈产出率，且不可通过后续赶工完全回补。可控旋钮有两个： 按计数的电极/瓷嘴预防性更换（把非计划停机换成短时计划停机），
+        以及关键备件本地备货水位。轴系类停机的时长方差远大于耗材类， 估算停机影响时应按成因分类而非用单一平均值。
+
+        '
+    tags:
+    - 键合
+    - 设备停机
+    - EFO
+    - 瓶颈
+    notes: '本条 provenance 为 model_prior。本轮检索到两个高相关来源但无法取回正文 （本环境出站 HTTPS 不可用，schannel SEC_E_NO_CREDENTIALS），按规范不填
+      未经核实的 web ref。候选线索留待网络恢复后核： SEMI E10（设备可靠性/可用性/可维护性，六种设备状态与停机口径定义， 可用于细化本条 detection 的 OEE 分解）； 以及一篇
+      EFO 电极磨损/表面污染/放电间隙的实验研究（Ariel University CRIS 收录），可用于把 efo_electrode_fouling 的机理描述升级为 web 来源。 核实时注意：URL
+      可达不等于正文支持该说法，须确认原文确实讨论了 电极污染与放电间隙漂移的因果，再改 provenance。
+
+      '
+    provenance:
+      source_type: model_prior
+      ref: null
+      confidence: medium
+      created_at: '2026-08-28'
+      reviewed_by: null
