@@ -14,13 +14,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
-import common as C
-
-VERDICT = {0: "answerable", 2: "refuse", 3: "refuse"}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ask  # noqa: E402
+import common as C  # noqa: E402
 
 
 def load(path: Path) -> list[tuple[str, str]]:
@@ -37,19 +36,37 @@ def load(path: Path) -> list[tuple[str, str]]:
     return out
 
 
-def run_one(question: str) -> tuple[str, str]:
-    """返回 (实际判定, 命中的 CQ ID)。"""
-    p = subprocess.run([sys.executable, str(C.ROOT / "scripts" / "ask.py"), question, "--json"],
-                       cwd=C.ROOT, capture_output=True, text=True, encoding="utf-8")
-    try:
-        d = json.loads(p.stdout)
-        m = d.get("matched") or {}
-        tag = m.get("id", "-")
-        if d.get("instance_signals"):
-            tag = "实例级:" + "/".join(d["instance_signals"])
-    except Exception:                                  # noqa: BLE001
-        tag = "!解析失败"
-    return VERDICT.get(p.returncode, f"?{p.returncode}"), tag
+def load_context() -> dict:
+    """本体只加载一次。原先每题起一个 Python 进程重读一遍，上百题就是上百次
+    冷启动 + 上百次 YAML 解析，几秒的判定被拖成几分钟。
+
+    只加载 cq 与 entities：regress 从不传 --probe，graph.json 与 kb 实例
+    在这条路径上用不到，不必读。
+    """
+    cq = C.load_competency()
+    entities, _ = C.load_entities()
+    return {"cq": cq, "et": ask.entity_terms(entities)}
+
+
+def run_one(question: str, ctx: dict) -> tuple[str, str]:
+    """返回 (实际判定, 命中的 CQ ID)。
+
+    判定必须与 ask.py 的退出码语义逐字一致，否则回归就在验一套自己发明的规则：
+      实例级命中          -> 退出码 2 -> refuse
+      命中 in_scope       -> 退出码 0 -> answerable
+      命中 out_of_scope   -> 退出码 2 -> refuse
+      分数不足/无候选     -> 退出码 3 -> refuse
+    """
+    inst = ask.instance_level(question)
+    if inst:
+        return "refuse", "实例级:" + "/".join(inst)
+
+    cands = ask.rank(question, ctx["cq"], ctx["et"])
+    top = cands[0] if cands and cands[0]["score"] >= ask.MIN_SCORE else None
+    if not top:
+        return "refuse", "-"
+    verdict = "answerable" if top["bucket"] == "in_scope" else "refuse"
+    return verdict, top["item"]["id"]
 
 
 def main() -> int:
@@ -64,12 +81,13 @@ def main() -> int:
         print("tests/ 下没有 questions-*.txt 夹具")
         return 1
 
+    ctx = load_context()
     report, failed = [], 0
     for f in files:
         cases = load(f)
         fails = []
         for exp, q in cases:
-            got, tag = run_one(q)
+            got, tag = run_one(q, ctx)
             if got != exp:
                 fails.append({"q": q, "expect": exp, "got": got, "matched": tag})
         failed += len(fails)

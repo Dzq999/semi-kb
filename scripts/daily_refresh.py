@@ -9,6 +9,7 @@
   1. 前置检查   工作区干净、脚本齐、基线校验通过、基线回归通过
   2. 快照      记下开跑前的 commit，这是回滚点
   3. 生成      调 claude CLI 无头跑 prompts/kb-refresh.md，产出 changesets/pending/*.yaml
+  3b. 闸门     precheck.py 对提案跑确定性检查，ERROR 则不进落库（约 2 秒，未合并故不回滚）
   4. 落库      apply_changeset.py 按 config.review 自动合并（它自带原子回滚）
   5. 护栏      净增实体数与增长比例不超 config.review.guards 的上限
   6. 验证      validate.py + build_index.py + regress.py 双份夹具
@@ -84,7 +85,8 @@ def precheck(guards: dict, skip_agent: bool) -> str | None:
                     "\n    ".join(dirty[:5]) +
                     "\n  先提交或撤销。自动化不该在别人没存盘的工作上叠改动。")
 
-    for s in ("validate.py", "build_index.py", "regress.py", "apply_changeset.py", "ask.py"):
+    for s in ("validate.py", "build_index.py", "regress.py", "apply_changeset.py",
+              "ask.py", "precheck.py"):
         if not (C.ROOT / "scripts" / s).is_file():
             return f"缺少 scripts/{s}"
     if not list((C.ROOT / "tests").glob("questions-*.txt")):
@@ -122,13 +124,23 @@ AGENT_TASK = """按 prompts/kb-refresh.md 执行一次自动扩充，无人值�
    R016 只查依赖类型有没有实例，查不了路径真不真通，自动加等于自动生产空承诺。
 7. 选题优先补 validate.py 报的孤立实体、无 kb 实例的异常、knowledge/project-notes.md
    的已知缺口。不要重复已有内容。
+8. **今天的日期是 {today}。** 提案文件名用 {today_compact}-<主题>.yaml，
+   changeset.created_at 与所有 provenance.created_at 一律写 {today}。
+   不要从既有 changesets 的文件名往后推一天——那会让时间线每轮偏移一天，
+   越跑越远，事后完全无法按日期审计知识是什么时候进来的。日期以本行为准。
 
 跑完只回一句话：产出了几个提案文件、各自新增多少条、选题是什么。
 """
 
 
 def run_agent(max_ent: int) -> tuple[bool, str]:
-    task = AGENT_TASK.format(max_ent=max_ent)
+    # 日期必须显式注入。不注入时 agent 只能从既有 changesets 的文件名推断，
+    # 实测会按"上一份是 0827，那这份就 0828"每轮 +1，时间线逐日漂移，
+    # 而 created_at 一旦写错就失去按日期审计知识来源的能力。
+    now = datetime.now()
+    task = AGENT_TASK.format(max_ent=max_ent,
+                             today=f"{now:%Y-%m-%d}",
+                             today_compact=f"{now:%Y%m%d}")
     cmd = ["claude", "-p", task,
            "--permission-mode", "acceptEdits",
            "--add-dir", str(C.ROOT),
@@ -162,6 +174,33 @@ def check_growth(before: dict, after: dict, guards: dict) -> str | None:
                 f"{d_ent / before['entities']:.1%}，超过 {ratio_cap:.0%}")
     if d_ent < 0 or after["relations"] < before["relations"]:
         return f"规模下降了（实体 {d_ent:+d}），自动扩充不该删东西"
+    return None
+
+
+# ---------- 5b. 提案确定性闸门 ----------
+
+def gate_pending() -> str | None:
+    """落库前对 pending 提案跑 precheck.py。约 2 秒，挡的是整轮白跑。
+
+    位置在 apply_changeset.py 之前、任何内容合并之前，所以失败可以直接返回
+    而不必回滚。这一层专治两类无人值守下最贵的失败：
+
+      顶层键写错 —— apply_changeset 会静默跳过并以退出码 0 报成功，
+                    日志只显示"自动放行 0 条"。定时任务看到 0 就以为成功了，
+                    实际每天空跑。precheck 把它变成显式 ERROR。
+      格式违规 —— 进了 apply 才发现就要 rollback 整轮，丢掉的是
+                  上游几十分钟的 agent 时间。
+
+    只在 ERROR 时阻断。WARN 是"值得看一眼"而非"不合规"，
+    无人值守时因为 warn 停掉整轮太激进，记进日志由人事后看。
+    """
+    r = py("precheck.py")
+    out = r.stdout.strip()
+    log(out[-1200:] if out else "(precheck 无输出)")
+    if r.returncode == 2:
+        return f"precheck 用法/文件错误（退出码 2）：{out[-300:]}"
+    if r.returncode != 0:
+        return "提案有 ERROR 级问题，不应落库"
     return None
 
 
@@ -261,6 +300,14 @@ def main() -> int:
 
     pending = sorted((C.ROOT / "changesets" / "pending").glob("*.yaml"))
     log(f"pending 提案 {len(pending)} 个：{[p.name for p in pending]}")
+    if pending:
+        gate = gate_pending()
+        if gate:
+            # 刻意不 rollback：此刻还没合并任何内容，没有要撤的东西。
+            # reset --hard 在这里只会破坏——提案与诊断信息都还有价值。
+            log(f"!! 提案确定性检查未过：{gate}")
+            log("未落库、未改动已跟踪文件。提案留在 pending/ 待修。")
+            return 1
     if not pending:
         # 不回滚。没合并过任何内容，没有要撤的东西；而 reset --hard 在这里
         # 只会破坏——比如删掉 agent 中途写坏但还有诊断价值的文件。
