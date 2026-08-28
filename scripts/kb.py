@@ -163,12 +163,23 @@ def run_step(name: str, timeout: int = 1800) -> tuple[bool, float, str]:
 
 
 def cmd_check(a) -> int:
-    pending = list((C.ROOT / "changesets" / "pending").glob("*.yaml"))
+    """--no-precheck 用于只判断"已落库的库好不好"，不看 pending 里的提案。
+
+    daily_refresh 的前置检查需要这个：它要确认基线自己是干净的，此时
+    pending 里可能已经躺着一份待处理的提案（--skip-agent 那条路径就是这样）。
+    若把提案也算进来，一份坏提案会让前置检查失败并退出码 2（环境没就绪、
+    未做任何改动），而它本该走到第 3b 段闸门、以退出码 1 结束（提案被拒）。
+    两者对调用方的含义完全不同，混在一起会让定时任务误判失败原因。
+    """
+    pending = ([] if a.no_precheck
+               else list((C.ROOT / "changesets" / "pending").glob("*.yaml")))
     chain = (["precheck.py"] if pending else []) + ["validate.py"]
     if not a.quick:
         chain.append("build_index.py")
     chain.append("regress.py")
-    if not pending:
+    if a.no_precheck:
+        print("（--no-precheck：只查已落库内容，不看 pending/）")
+    elif not pending:
         print("（pending/ 为空，跳过 precheck）")
 
     total = 0.0
@@ -197,6 +208,8 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check", help="跑完整检查链")
     c.add_argument("--quick", action="store_true", help="跳过 build_index")
+    c.add_argument("--no-precheck", action="store_true", dest="no_precheck",
+                   help="不检查 pending/ 里的提案，只判断已落库内容")
     st = sub.add_parser("status", help="规模与选题缺口")
     st.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args()

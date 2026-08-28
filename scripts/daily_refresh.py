@@ -107,7 +107,7 @@ def preflight(guards: dict, skip_agent: bool) -> str | None:
     # 还是这次加进去的——而分不清就意味着不敢回滚也不敢保留。
     # 用 --quick 跳过 build_index：此刻只需知道基线好不好，不需要重建索引，
     # 重建留给合并之后那次。
-    r = py("kb.py", "check", "--quick", timeout=1800)
+    r = py("kb.py", "check", "--quick", "--no-precheck", timeout=1800)
     if r.returncode != 0:
         return ("基线自己就没过，先修库再谈自动扩充：\n"
                 + "\n".join("    " + l for l in
@@ -236,7 +236,10 @@ def verify() -> str | None:
     "合并本身没把库弄坏"，而这里要确认的是全库最终状态：build/ 与本体一致、
     问题夹具仍然全通。两者的判定范围不同。
     """
-    r = py("kb.py", "check", timeout=1800)
+    # 同样带 --no-precheck：此刻要判断的是合并后的库，而 pending 里可能还留着
+    # 被拦下的条目（apply 部分放行时就是这样）。那些条目的问题不该让
+    # 已成功合并的内容被回滚。
+    r = py("kb.py", "check", "--no-precheck", timeout=1800)
     log(r.stdout.strip()[-900:])
     if r.returncode != 0:
         return "合并后全链验证失败（validate / build_index / regress 之一）"
