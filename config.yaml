@@ -37,13 +37,15 @@ review:
     # apply_changeset.py 只读结论、不自己判断，因此 apply 仍是确定性的、
     # 可离线复跑的。缺 verdict 一律不合并：没被审过 != 审过且通过。
     #
-    # 审核由谁做：早期用独立子代理，实测太慢（11 条要几分钟，且多数时间花在
-    # 重复推导脚本能算出的结论）。现改为 precheck.py + 自审：确定性检查全部
-    # 由脚本承担，需要判断的部分自审并在 verdict 里标 self:*。
+    # 审核方式：precheck.py 承担确定性检查，需要判断的部分自审，
+    # 并在 verdict 的 verifier 字段标 self:*。
     # 代价要清楚——自审没有第二双眼睛，同一段上下文里边写边审有盖章通过的
     # 倾向。缓解办法是把能判定的规则持续往 precheck.py 里沉淀，
-    # 让"需要判断"的面积越来越小。verdict 里的 verifier 必须诚实标 self，
+    # 让"需要判断"的面积越来越小。verifier 必须诚实标 self，
     # 假装独立审过比自审更糟。
+    #
+    # 注：changesets/verdicts/ 下早期几份 verdict 的 verifier 记的不是 self，
+    # 那是当时的真实审核方，属审计记录，不改。
     require_verdict: true
     # 无人值守专属护栏，由 daily_refresh.py 执行（apply_changeset.py 不读这几项）
     max_entities_per_day: 25    # 单日净增实体上限，防一次跑飞把库冲垮
