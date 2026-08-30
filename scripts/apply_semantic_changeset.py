@@ -159,7 +159,16 @@ def main() -> int:
                     for value in values:
                         triple = (subject, URIRef(predicate), URIRef(value))
                         add_assertion(triple, provenance); object_assertions.append(triple)
-                for predicate, values in (item.get("data") or {}).items():
+                data_values = dict(item.get("data") or {})
+                # BusinessVariableShape requires a direct sourceRef on every
+                # variable.  Agent outputs historically relied only on the
+                # PROV provenance node, which is not visible to SHACL.  Inherit
+                # the changeset provenance when the individual omits it; this
+                # preserves the evidence boundary and keeps the variable
+                # publishable without inventing a source.
+                if "urn:pxai:semi:BusinessVariable" in {str(value) for value in item.get("types") or []} and not data_values.get("urn:pxai:semi:sourceRef"):
+                    data_values["urn:pxai:semi:sourceRef"] = [provenance["source_ref"]]
+                for predicate, values in data_values.items():
                     for value in values:
                         triple = (subject, URIRef(predicate), Literal(value))
                         add_assertion(triple, provenance); data_assertions.append(triple)
