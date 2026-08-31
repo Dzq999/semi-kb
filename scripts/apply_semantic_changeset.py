@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 PENDING = ROOT / "semantic_changesets" / "pending"
@@ -28,6 +29,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         import jsonschema
+        import yaml
         from rdflib import BNode, Dataset, Graph, Literal, RDF, RDFS, URIRef
         from rdflib.namespace import OWL, PROV, XSD
     except ModuleNotFoundError as exc:
@@ -73,6 +75,135 @@ def main() -> int:
         data_graph.add((statement, URIRef("urn:pxai:semi:sourceType"), Literal(provenance["source_type"])))
         data_graph.add((statement, URIRef("urn:pxai:semi:confidence"), Literal(provenance["confidence"])))
         data_graph.add((statement, URIRef("urn:pxai:semi:sourceRef"), Literal(provenance["source_ref"])))
+
+    def complete_deterministic_relations(subject, types, data_values, provenance) -> None:
+        """Add only relations derivable from an existing model/scenario file.
+
+        Agent candidates often describe a simulation or business model but omit
+        the RDF edges that can be derived without interpretation.  We derive
+        those edges from the referenced YAML and existing graph inventory; no
+        new business fact or guessed target is introduced.
+        """
+        type_names = {str(value) for value in types}
+        source_refs = [str(value) for value in data_values.get("urn:pxai:semi:sourceRef", [])]
+        if "urn:pxai:semi:BusinessVariable" in type_names:
+            # identifier and unitCode are deterministic metadata when the
+            # candidate already names a model variable.  Prefer nameEn, then
+            # the IRI suffix, and resolve the unit from referenced model,
+            # scenario, dataset, or inherited template YAML.
+            if not data_values.get("urn:pxai:semi:identifier"):
+                iri_identifier = str(subject).rsplit(":", 1)[-1]
+                data_values["urn:pxai:semi:identifier"] = [str((data_values.get("urn:pxai:semi:nameEn") or [iri_identifier])[0])]
+            if not data_values.get("urn:pxai:semi:unitCode"):
+                model_refs: list[str] = []
+                for source_ref in source_refs:
+                    if source_ref.startswith("business/models/"):
+                        model_refs.append(source_ref)
+                    elif source_ref.startswith("simulation/scenarios/"):
+                        scenario_path = ROOT / source_ref
+                        try:
+                            scenario = (yaml.safe_load(scenario_path.read_text(encoding="utf-8")) or {}).get("scenario") or {}
+                            if scenario.get("model_ref"):
+                                model_refs.append(str(scenario["model_ref"]))
+                        except (OSError, yaml.YAMLError):
+                            continue
+                variable_id = str(data_values["urn:pxai:semi:identifier"][0])
+                units: list[str] = []
+                visited_templates: set[str] = set()
+
+                def collect_template(ref: str) -> None:
+                    if ref in visited_templates:
+                        return
+                    visited_templates.add(ref)
+                    path = ROOT / ref
+                    try:
+                        template = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("template") or {}
+                    except (OSError, yaml.YAMLError):
+                        return
+                    for item in (template.get("variables") or []) + (template.get("calculations") or []):
+                        if str(item.get("id")) == variable_id and item.get("unit"):
+                            units.append(str(item["unit"]))
+                    for parent in template.get("extends") or []:
+                        collect_template(str(parent))
+
+                for model_ref in model_refs:
+                    model_path = ROOT / model_ref
+                    try:
+                        model = (yaml.safe_load(model_path.read_text(encoding="utf-8")) or {}).get("model") or {}
+                    except (OSError, yaml.YAMLError):
+                        continue
+                    dataset_ref = str(model.get("dataset_ref") or "")
+                    if dataset_ref:
+                        dataset_path = ROOT / dataset_ref
+                        try:
+                            dataset = ((yaml.safe_load(dataset_path.read_text(encoding="utf-8")) or {}).get("dataset") or {})
+                            for item in dataset.get("values") or []:
+                                if str(item.get("id")) == variable_id and item.get("unit"):
+                                    units.append(str(item["unit"]))
+                        except (OSError, yaml.YAMLError):
+                            pass
+                    if model.get("template_ref"):
+                        collect_template(str(model["template_ref"]))
+                if units:
+                    data_values["urn:pxai:semi:unitCode"] = [units[0]]
+        if "urn:pxai:semi:SimulationScenario" in type_names:
+            model_refs: set[str] = set()
+            for source_ref in source_refs:
+                if not source_ref.startswith("simulation/scenarios/"):
+                    continue
+                path = ROOT / source_ref
+                if not path.is_file():
+                    continue
+                try:
+                    scenario = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("scenario") or {}
+                except (OSError, yaml.YAMLError):
+                    continue
+                model_ref = str(scenario.get("model_ref") or "")
+                if model_ref:
+                    model_refs.add(model_ref)
+            if model_refs and (subject, URIRef("urn:pxai:semi:usesBusinessModel"), None) not in data_graph:
+                for model_ref in sorted(model_refs):
+                    # The semantic migration script derives business-model IRIs from
+                    # the model's stable ``id`` (not its relative file path).
+                    # Resolve that same identifier so the deterministic edge
+                    # points at the existing baseline node.
+                    model_node = None
+                    try:
+                        model_doc = (yaml.safe_load((ROOT / model_ref).read_text(encoding="utf-8")) or {}).get("model") or {}
+                        model_id = str(model_doc.get("id") or "").strip()
+                        if model_id:
+                            model_node = URIRef(f"urn:pxai:semi:business-model:{quote(model_id, safe='._-')}")
+                    except (OSError, yaml.YAMLError):
+                        model_node = None
+                    if model_node is None:
+                        continue
+                    if model_node in seen:
+                        add_assertion((subject, URIRef("urn:pxai:semi:usesBusinessModel"), model_node), provenance)
+
+        if "urn:pxai:semi:BusinessModel" in type_names:
+            for source_ref in source_refs:
+                if not source_ref.startswith("business/models/"):
+                    continue
+                path = ROOT / source_ref
+                if not path.is_file():
+                    continue
+                try:
+                    model = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("model") or {}
+                    dataset_ref = str(model.get("dataset_ref") or "")
+                    dataset_path = ROOT / dataset_ref if dataset_ref else None
+                    dataset = ((yaml.safe_load(dataset_path.read_text(encoding="utf-8")) or {}).get("dataset") or {}) if dataset_path and dataset_path.is_file() else {}
+                except (OSError, yaml.YAMLError):
+                    continue
+                identifiers = {str(item.get("id")) for item in dataset.get("values") or [] if item.get("id")}
+                for variable in sorted(seen):
+                    if not isinstance(variable, URIRef):
+                        continue
+                    if str(next(data_graph.objects(variable, URIRef("urn:pxai:semi:identifier")), "")) not in identifiers:
+                        continue
+                    triple = (subject, URIRef("urn:pxai:semi:hasBusinessVariable"), variable)
+                    if triple not in data_graph:
+                        add_assertion(triple, provenance)
+                break
 
     def validate_provenance(path: Path, provenance: dict) -> None:
         source_type = provenance["source_type"]
@@ -168,6 +299,7 @@ def main() -> int:
                 # publishable without inventing a source.
                 if "urn:pxai:semi:BusinessVariable" in {str(value) for value in item.get("types") or []} and not data_values.get("urn:pxai:semi:sourceRef"):
                     data_values["urn:pxai:semi:sourceRef"] = [provenance["source_ref"]]
+                complete_deterministic_relations(subject, item.get("types") or [], data_values, provenance)
                 for predicate, values in data_values.items():
                     for value in values:
                         triple = (subject, URIRef(predicate), Literal(value))
